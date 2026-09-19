@@ -1,0 +1,16 @@
+# Danh sach ma theo doi mac dinh khi chua backfill toan san.
+# Dung cho giai doan phat trien de chay nhanh.
+watchlist:
+  - FPT
+  - MBB
+  - HPG
+  - VNM
+  - MWG
+  - SSI
+  - VCB
+  - TCB
+  - VHM
+  - DGC
+  - PNJ
+  - REE
+benchmark: VNINDEX

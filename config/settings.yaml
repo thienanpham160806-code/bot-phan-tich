@@ -1,0 +1,86 @@
+# Cau hinh he thong. Moi nguong o day la GIA TRI KHOI DIEM de bat dau kiem thu,
+# khong phai gia tri toi uu. Phai hieu chinh lai tren du lieu that.
+
+data:
+  # Thu tu uu tien nguon. Router se lan luot thu tu tren xuong duoi.
+  price_sources: [dnse, vietcap]
+  fundamental_sources: [vietcap]
+  cache_ttl_seconds:
+    intraday: 900        # 15 phut
+    daily: 43200         # 12 gio
+    fundamental: 86400   # 24 gio
+  retry:
+    max_attempts: 5
+    base_delay: 1.0
+    max_delay: 30.0
+
+universe:
+  exchanges: [HOSE, HNX, UPCOM]
+  min_avg_volume_20d: 100000      # co phieu/phien
+  min_price: 5000                 # dong
+  max_price: 300000
+  min_listed_days: 250
+
+signals:
+  # He so ATR dung cho diem dung lo / muc tieu, xem analysis/scoring.py va
+  # risk/stops.py. Trung voi cong thuc trong docs/cong-thuc.md.
+  stop_loss_atr: 1.5
+  take_profit_atr: 3.0
+
+indicators:
+  # Bo tham so Ichimoku: "goc_nhat_6ngay" = (9,26,52) - ban goc tu thi truong
+  # Nhat, tinh theo tuan lam viec 6 ngay. "hieu_chinh_5ngay" = (7,22,44) - quy
+  # doi ty le cho tuan lam viec 5 ngay hien nay. Xem indicators/ichimoku.py.
+  ichimoku_preset: goc_nhat_6ngay
+
+scoring:
+  # Trong so gop diem hop luu ba he chi bao, xem analysis/scoring.py.
+  # Ichimoku nang nhat vi la he thong xu huong hoan chinh; MACD/RSI la
+  # chi bao dong luc don le.
+  weights:
+    macd: 0.30
+    rsi: 0.25
+    ichimoku: 0.45
+  divergence_penalty: 25.0       # phan ky am -> tru thang diem tong
+  low_volume_ratio: 0.5          # duoi muc nay so voi TB20 -> ha do tin cay
+  thresholds:
+    buy: 60
+    accumulate: 20
+    watch: -20
+    reduce: -60
+
+risk:
+  risk_per_trade: 0.01
+  max_weight_per_symbol: 0.15
+  max_weight_per_sector: 0.35
+  chandelier_atr_mult: 3.0
+  partial_take_profit_r: 2.0
+
+costs:
+  fee_rate: 0.0025      # phi hai chieu
+  sell_tax_rate: 0.001  # thue thu nhap ca nhan khi ban
+  settlement_days: 2    # T+2
+
+price_band:
+  HOSE: 0.07
+  HNX: 0.10
+  UPCOM: 0.15
+
+bot:
+  scan_cron: "5 15 * * 1-5"    # 15h05 cac ngay lam viec
+  max_signals_per_message: 10
+  timezone: Asia/Ho_Chi_Minh
+
+screener:
+  # Qua thoi gian nay thi dung quet va tra ket qua da co kem ghi chu, khong
+  # treo bot. Xem analysis/screener.py:screen_report().
+  timeout_seconds: 25.0
+
+realtime:
+  # Chua co API key tai thoi diem viet (xem docs/lay-api.md). Khi enabled la
+  # false, data/realtime.py.get_realtime_provider() luon tra NullRealtimeProvider
+  # va toan bo bot chay binh thuong bang du lieu cuoi phien qua data/router.py.
+  enabled: false
+  provider: dnse
+  fallback: vietcap
+  reconnect_seconds: 5
