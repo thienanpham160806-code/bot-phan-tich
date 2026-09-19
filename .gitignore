@@ -1,0 +1,38 @@
+# môi trường
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# dữ liệu và mô hình (không commit, dung lượng lớn)
+# chỉ bỏ qua thư mục data ở gốc repo, không đụng src/bot_phan_tich/data/
+/data/
+/cache/
+/artifacts/
+*.parquet
+*.db
+*.sqlite3
+*.pkl
+*.joblib
+
+# log & output
+logs/
+*.log
+outputs/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

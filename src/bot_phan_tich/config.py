@@ -1,0 +1,109 @@
+"""Nap cau hinh tu settings.yaml va bien moi truong."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+import yaml
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CONFIG_DIR = PROJECT_ROOT / "config"
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+
+@dataclass(frozen=True)
+class Secrets:
+    """Thong tin nhay cam, chi doc tu bien moi truong."""
+
+    telegram_token: str = ""
+    telegram_admin_ids: tuple[int, ...] = ()
+    dnse_api_key: str = ""
+    dnse_api_secret: str = ""
+    dnse_base_url: str = "https://openapi.dnse.com.vn"
+    dnse_api_version: str = "2026-05-07"
+
+    @classmethod
+    def from_env(cls) -> Secrets:
+        raw_admins = os.getenv("TELEGRAM_ADMIN_IDS", "")
+        admins = tuple(
+            int(x) for x in (p.strip() for p in raw_admins.split(",")) if x.isdigit()
+        )
+        return cls(
+            telegram_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+            telegram_admin_ids=admins,
+            dnse_api_key=os.getenv("DNSE_API_KEY", ""),
+            dnse_api_secret=os.getenv("DNSE_API_SECRET", ""),
+            dnse_base_url=os.getenv("DNSE_BASE_URL", "https://openapi.dnse.com.vn"),
+            dnse_api_version=os.getenv("DNSE_API_VERSION", "2026-05-07"),
+        )
+
+
+@dataclass(frozen=True)
+class Paths:
+    data_dir: Path = field(default_factory=lambda: Path(os.getenv("DATA_DIR", "./data")))
+    cache_db: Path = field(
+        default_factory=lambda: Path(os.getenv("CACHE_DB", "./data/cache.sqlite3"))
+    )
+    model_dir: Path = field(default_factory=lambda: Path(os.getenv("MODEL_DIR", "./artifacts")))
+
+    def ensure(self) -> None:
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_db.parent.mkdir(parents=True, exist_ok=True)
+
+
+class Settings:
+    """Bao mong quanh settings.yaml, truy cap bang duong dan dau cham."""
+
+    def __init__(self, raw: dict[str, Any]):
+        self._raw = raw
+
+    def get(self, dotted: str, default: Any = None) -> Any:
+        node: Any = self._raw
+        for part in dotted.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return default
+            node = node[part]
+        return node
+
+    def __getitem__(self, dotted: str) -> Any:
+        value = self.get(dotted, _MISSING)
+        if value is _MISSING:
+            raise KeyError(f"Thieu khoa cau hinh: {dotted}")
+        return value
+
+    @property
+    def raw(self) -> dict[str, Any]:
+        return self._raw
+
+
+_MISSING = object()
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    with open(CONFIG_DIR / "settings.yaml", encoding="utf-8") as fh:
+        return Settings(yaml.safe_load(fh))
+
+
+@lru_cache(maxsize=1)
+def get_universe_config() -> dict[str, Any]:
+    with open(CONFIG_DIR / "universe.yaml", encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+@lru_cache(maxsize=1)
+def get_secrets() -> Secrets:
+    return Secrets.from_env()
+
+
+@lru_cache(maxsize=1)
+def get_paths() -> Paths:
+    paths = Paths()
+    paths.ensure()
+    return paths

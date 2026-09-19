@@ -1,0 +1,392 @@
+"""Text mining bao cao tai chinh hop nhat da kiem toan.
+
+Giai quyet van de: doc BCTC (PDF nguoi dung gui, hoac du lieu co cau truc tu
+data/router.py) qua nhieu nam va sinh nhan xet bang TIENG VIET ve tinh hinh
+tai chinh doanh nghiep. Dung QUY TAC + TU DIEN, khong dung mo hinh ngon ngu -
+de moi cau trong nhan xet co the truy lai duoc dung mot dong code hoac mot
+dong trong tu dien (de giai thich khi bao ve do an), va khong can GPU/API
+ngoai de chay.
+
+Luong xu ly: extract_text (PDF -> text) -> segment_sections (tach theo tieu
+de) -> audit_opinion + risk_keywords (doc tren toan van ban hoac tung phan)
+-> trend_analysis (tren du lieu co cau truc nhieu nam) -> generate_commentary
+(gop tat ca thanh mot nhan xet co bo cuc co dinh).
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
+import yaml
+
+from ..config import CONFIG_DIR
+from ..logging_conf import get_logger
+
+log = get_logger(__name__)
+
+# ------------------------------------------------------------- trich xuat PDF
+def extract_text(pdf_path: str | Path) -> str:
+    """Trich van ban tu PDF BCTC bang pdfplumber, giu cau truc doan theo trang."""
+    import pdfplumber
+
+    pages_text: list[str] = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            pages_text.append(page.extract_text() or "")
+    return "\n\n".join(pages_text)
+
+
+# --------------------------------------------------------------- tach cac phan
+# TODO: cac mau tieu de la DU DOAN hop ly dua tren cach trinh bay BCTC pho
+# bien tai Viet Nam - bo sung them mau khi gap BCTC thuc te khong khop.
+_SECTION_PATTERNS: dict[str, list[str]] = {
+    "y_kien_kiem_toan": [r"ý kiến (của )?kiểm toán", r"báo cáo (của )?kiểm toán( độc lập)?"],
+    "bang_can_doi": [r"bảng cân đối kế toán"],
+    "ket_qua_kinh_doanh": [r"báo cáo kết quả hoạt động kinh doanh", r"kết quả kinh doanh"],
+    "luu_chuyen_tien_te": [r"báo cáo lưu chuyển tiền tệ", r"lưu chuyển tiền tệ"],
+    "thuyet_minh": [r"thuyết minh báo cáo tài chính", r"thuyết minh"],
+}
+
+
+def segment_sections(text: str) -> dict[str, str]:
+    """Tach van ban BCTC theo tieu de thuong gap (regex, khong dau cau tinh).
+
+    Tra ve dict {ten_phan: noi_dung}. Phan nao khong tim thay tieu de trong
+    van ban thi KHONG co trong dict - khong bia noi dung.
+    """
+    lowered = text.lower()
+    matches: list[tuple[int, str]] = []
+    for key, patterns in _SECTION_PATTERNS.items():
+        for pattern in patterns:
+            matches.extend((m.start(), key) for m in re.finditer(pattern, lowered))
+    if not matches:
+        return {}
+
+    matches.sort()
+    sections: dict[str, str] = {}
+    for i, (start, key) in enumerate(matches):
+        if key in sections:
+            continue  # giu doan tu LAN XUAT HIEN DAU TIEN cua tieu de nay
+        end = matches[i + 1][0] if i + 1 < len(matches) else len(text)
+        sections[key] = text[start:end].strip()
+    return sections
+
+
+# ------------------------------------------------------------- y kien kiem toan
+_AUDIT_OPINIONS: dict[str, list[str]] = {
+    "trái ngược": ["ý kiến trái ngược", "không trình bày trung thực và hợp lý"],
+    "từ chối": ["từ chối đưa ra ý kiến", "không thể đưa ra ý kiến"],
+    "ngoại trừ": ["ý kiến ngoại trừ", "ngoại trừ ảnh hưởng", "ngoại trừ vấn đề"],
+    "chấp nhận toàn phần": [
+        "chấp nhận toàn phần",
+        "ý kiến chấp nhận toàn phần",
+        "trình bày trung thực và hợp lý",
+    ],
+}
+# Thu tu uu tien: loai NGHIEM TRONG hon duoc kiem truoc, vi mot doan van co
+# the vua nhac "trinh bay trung thuc" (trong cau dan) vua co "ngoai tru".
+_OPINION_PRIORITY = ["trái ngược", "từ chối", "ngoại trừ", "chấp nhận toàn phần"]
+
+
+def _normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+def audit_opinion(text: str) -> dict:
+    """Phan loai y kien kiem toan bang tu dien cum tu.
+
+    Y kien NGOAI TRU la tin hieu canh bao rat manh - duoc kiem truoc ca
+    "tu choi"/"trai nguoc" o day chi vi thu tu liet ke, nhung generate_commentary()
+    la noi thuc su dua no len dau nhan xet.
+
+    Tra ve dict: opinion (mot trong 4 loai, None neu khong nhan dien duoc),
+    evidence (cum tu khop dau tien lam minh chung).
+    """
+    lowered = _normalize(text)
+    for opinion in _OPINION_PRIORITY:
+        for phrase in _AUDIT_OPINIONS[opinion]:
+            if _normalize(phrase) in lowered:
+                return {"opinion": opinion, "evidence": phrase}
+    return {"opinion": None, "evidence": None}
+
+
+# --------------------------------------------------------------- tu khoa rui ro
+@dataclass
+class Hit:
+    """Mot lan tu khoa rui ro xuat hien trong van ban."""
+
+    keyword: str
+    group: str
+    weight: float
+    sentence: str
+
+
+def _load_risk_dictionary() -> dict:
+    path = CONFIG_DIR / "risk_keywords.yaml"
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Tach cau don gian theo dau cham/hoi/than hoac xuong dong - du dung de
+    lay ra cau chua tu khoa, khong can chinh xac tuyet doi ve ngu phap."""
+    parts = re.split(r"(?<=[.!?;])\s+|\n+", text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def risk_keywords(text: str, dictionary: dict | None = None) -> list[Hit]:
+    """Quet tu dien rui ro (config/risk_keywords.yaml) tren `text`.
+
+    Tra ve danh sach Hit, moi Hit la MOT lan tu khoa xuat hien kem cau chua
+    no (de nguoi dung tu doc lai ngu canh, khong chi thay tu khoa tro tru).
+    """
+    dictionary = dictionary if dictionary is not None else _load_risk_dictionary()
+    sentences = _split_sentences(text)
+    normalized_sentences = [(_normalize(s), s) for s in sentences]
+
+    hits: list[Hit] = []
+    for group_key, group in dictionary.get("groups", {}).items():
+        weight = float(group.get("weight", 1.0))
+        for keyword in group.get("keywords", []):
+            needle = _normalize(keyword)
+            for normalized, original in normalized_sentences:
+                if needle in normalized:
+                    hit = Hit(keyword=keyword, group=group_key, weight=weight, sentence=original)
+                    hits.append(hit)
+    return hits
+
+
+# ------------------------------------------------------------------- xu huong
+# TODO: ten cot la DU DOAN hop ly dua tren quy uoc dat ten pho bien cua
+# vnstock/DNSE, CAN xac nhan khi co du lieu that (chua co API key). Chinh lai
+# cac candidates nay ngay khi co ket qua goi financials() dau tien.
+_TREND_COLUMNS: dict[str, list[str]] = {
+    "revenue": ["revenue", "netRevenue", "saleRevenue", "netSale"],
+    "net_income": ["netIncome", "postTaxProfit", "profitAfterTax", "netProfit"],
+    "gross_profit": ["grossProfit"],
+    "total_assets": ["totalAssets", "asset"],
+    "equity": ["equity", "ownerEquity", "totalEquity"],
+}
+_CFO_COLUMNS = ["netCashFlowFromOperating", "cfo", "operatingCashFlow"]
+_YEAR_COLUMNS = ["year", "yearReport", "period"]
+_EARNINGS_QUALITY_THRESHOLD = 0.8
+
+
+def _find_column(frame: pd.DataFrame, candidates: list[str]) -> str | None:
+    return next((c for c in candidates if c in frame.columns), None)
+
+
+def _cagr(first: float, last: float, years: int) -> float | None:
+    """Toc do tang truong kep nhieu nam: (last/first)^(1/years) - 1."""
+    if first is None or last is None or first <= 0 or years <= 0:
+        return None
+    return float((last / first) ** (1 / years) - 1)
+
+
+def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
+    """Tinh CAGR doanh thu/LNST/tong tai san/VCSH, bien loi nhuan va chat
+    luong loi nhuan (CFO/LNST) tu bao cao tai chinh nhieu nam.
+
+    `financials` co dang tra ve cua data/router.py:financials() - dict voi
+    cac khoa income/balance/cashflow/ratios, moi gia tri la mot DataFrame
+    theo nam (period="year"), SAP XEP TANG DAN theo thoi gian.
+
+    Tra ve dict, chi dien cac khoa TINH DUOC (thieu cot nao thi bo qua khoa
+    do va ghi vao "notes" - khong bia so).
+    """
+    income = financials.get("income", pd.DataFrame())
+    balance = financials.get("balance", pd.DataFrame())
+    cashflow = financials.get("cashflow", pd.DataFrame())
+
+    result: dict = {"years": [], "notes": []}
+
+    year_col = _find_column(income, _YEAR_COLUMNS)
+    if income.empty or year_col is None:
+        result["notes"].append("Khong co du lieu ket qua kinh doanh theo nam")
+        return result
+    years = income[year_col].tolist()
+    result["years"] = years
+
+    rev_col = _find_column(income, _TREND_COLUMNS["revenue"])
+    ni_col = _find_column(income, _TREND_COLUMNS["net_income"])
+    gp_col = _find_column(income, _TREND_COLUMNS["gross_profit"])
+
+    if rev_col:
+        revenue = income[rev_col].astype(float)
+        result["revenue_cagr"] = _cagr(revenue.iloc[0], revenue.iloc[-1], len(revenue) - 1)
+        if ni_col:
+            net_income = income[ni_col].astype(float)
+            margins = net_income / revenue.replace(0, pd.NA)
+            result["net_margin_by_year"] = dict(zip(years, margins, strict=False))
+        if gp_col:
+            gross = income[gp_col].astype(float)
+            result["gross_margin_by_year"] = dict(
+                zip(years, gross / revenue.replace(0, pd.NA), strict=False)
+            )
+    else:
+        result["notes"].append("Khong tim duoc cot doanh thu")
+
+    if ni_col:
+        net_income = income[ni_col].astype(float)
+        years_span = len(net_income) - 1
+        result["net_income_cagr"] = _cagr(net_income.iloc[0], net_income.iloc[-1], years_span)
+    else:
+        result["notes"].append("Khong tim duoc cot loi nhuan sau thue")
+
+    asset_col = _find_column(balance, _TREND_COLUMNS["total_assets"])
+    if asset_col and not balance.empty:
+        assets = balance[asset_col].astype(float)
+        result["total_assets_cagr"] = _cagr(assets.iloc[0], assets.iloc[-1], len(assets) - 1)
+
+    equity_col = _find_column(balance, _TREND_COLUMNS["equity"])
+    if equity_col and not balance.empty:
+        equity = balance[equity_col].astype(float)
+        result["equity_cagr"] = _cagr(equity.iloc[0], equity.iloc[-1], len(equity) - 1)
+
+    cfo_col = _find_column(cashflow, _CFO_COLUMNS)
+    if cfo_col and ni_col and not cashflow.empty:
+        n = min(len(cashflow), len(income))
+        cfo = cashflow[cfo_col].astype(float).tail(n).reset_index(drop=True)
+        net_income_tail = income[ni_col].astype(float).tail(n).reset_index(drop=True)
+        ratios = cfo / net_income_tail.replace(0, pd.NA)
+        result["cfo_to_ni_by_year"] = dict(zip(years[-n:], ratios, strict=False))
+        valid = ratios.dropna()
+        result["cfo_to_ni_avg"] = float(valid.mean()) if not valid.empty else None
+
+    return result
+
+
+# --------------------------------------------------------------- nhan xet cuoi
+def generate_commentary(symbol: str, audit: dict, risk_hits: list[Hit], trend: dict) -> str:
+    """Sinh nhan xet tieng Viet theo QUY TAC + MAU CAU co dinh, khong dung mo
+    hinh ngon ngu. Bo cuc: y kien kiem toan -> tang truong -> sinh loi ->
+    co cau tai chinh -> chat luong loi nhuan -> rui ro thuyet minh -> ket luan.
+
+    Moi dong deu co gang dan so cu the kem nam; khi thieu du lieu thi noi ro
+    "khong co du lieu" thay vi noi chung chung.
+    """
+    lines: list[str] = [f"<b>Bình luận tình hình tài chính — {symbol.upper()}</b>", ""]
+
+    lines.append("<b>1. Ý kiến kiểm toán</b>")
+    lines.append(_audit_paragraph(audit))
+    lines.append("")
+
+    lines.append("<b>2. Tăng trưởng qua các năm</b>")
+    lines.append(_growth_paragraph(trend))
+    lines.append("")
+
+    lines.append("<b>3. Khả năng sinh lời</b>")
+    lines.append(_profitability_paragraph(trend))
+    lines.append("")
+
+    lines.append("<b>4. Cơ cấu tài chính và đòn bẩy</b>")
+    lines.append(_structure_paragraph(trend))
+    lines.append("")
+
+    lines.append("<b>5. Chất lượng lợi nhuận và dòng tiền</b>")
+    lines.append(_earnings_quality_paragraph(trend))
+    lines.append("")
+
+    lines.append("<b>6. Rủi ro phát hiện trong thuyết minh</b>")
+    lines.append(_risk_paragraph(risk_hits))
+    lines.append("")
+
+    lines.append("<b>Kết luận</b>")
+    lines.append(_conclusion_paragraph(audit, trend, risk_hits))
+
+    return "\n".join(lines)
+
+
+def _audit_paragraph(audit: dict) -> str:
+    opinion, evidence = audit.get("opinion"), audit.get("evidence")
+    if opinion == "ngoại trừ":
+        return f"⚠️ Ý kiến kiểm toán là NGOẠI TRỪ — cảnh báo mạnh: “{evidence}”."
+    if opinion in ("từ chối", "trái ngược"):
+        return f"⚠️ Ý kiến kiểm toán là {opinion.upper()} — cảnh báo rất mạnh: “{evidence}”."
+    if opinion == "chấp nhận toàn phần":
+        return "Kiểm toán viên đưa ra ý kiến chấp nhận toàn phần."
+    return "Không xác định được loại ý kiến kiểm toán từ văn bản đã cung cấp."
+
+
+def _growth_paragraph(trend: dict) -> str:
+    years = trend.get("years") or []
+    span = f"{years[0]}-{years[-1]}" if len(years) >= 2 else "giai đoạn có dữ liệu"
+    parts = []
+    if trend.get("revenue_cagr") is not None:
+        parts.append(f"doanh thu tăng trưởng bình quân {trend['revenue_cagr']:+.1%}/năm ({span})")
+    if trend.get("net_income_cagr") is not None:
+        ni_cagr = trend["net_income_cagr"]
+        parts.append(f"lợi nhuận sau thuế tăng trưởng bình quân {ni_cagr:+.1%}/năm")
+    if not parts:
+        return "Không có đủ dữ liệu doanh thu/lợi nhuận theo năm để tính tốc độ tăng trưởng."
+    return f"Trong {span}, " + "; ".join(parts) + "."
+
+
+def _profitability_paragraph(trend: dict) -> str:
+    margins = trend.get("net_margin_by_year") or {}
+    if not margins:
+        return "Không có dữ liệu biên lợi nhuận ròng theo năm."
+    last_year = list(margins)[-1]
+    return f"Biên lợi nhuận ròng năm {last_year} đạt {margins[last_year]:.1%}."
+
+
+def _structure_paragraph(trend: dict) -> str:
+    parts = []
+    if trend.get("total_assets_cagr") is not None:
+        parts.append(f"tổng tài sản tăng trưởng bình quân {trend['total_assets_cagr']:+.1%}/năm")
+    if trend.get("equity_cagr") is not None:
+        parts.append(f"vốn chủ sở hữu tăng trưởng bình quân {trend['equity_cagr']:+.1%}/năm")
+    if not parts:
+        return "Không có dữ liệu tổng tài sản/vốn chủ sở hữu để đánh giá cơ cấu tài chính."
+    return ("Về cơ cấu tài chính, " + "; ".join(parts) + ".")
+
+
+def _earnings_quality_paragraph(trend: dict) -> str:
+    avg = trend.get("cfo_to_ni_avg")
+    if avg is None:
+        return "Không có dữ liệu dòng tiền hoạt động để đánh giá chất lượng lợi nhuận."
+    warning = (
+        f" — thấp hơn mức {_EARNINGS_QUALITY_THRESHOLD}, dấu hiệu lợi nhuận"
+        " chưa đi kèm tiền thật"
+        if avg < _EARNINGS_QUALITY_THRESHOLD
+        else ""
+    )
+    return f"Tỷ lệ dòng tiền hoạt động/lợi nhuận sau thuế bình quân {avg:.2f}{warning}."
+
+
+def _risk_paragraph(risk_hits: list[Hit]) -> str:
+    if not risk_hits:
+        return "Không phát hiện từ khoá rủi ro nào trong văn bản đã cung cấp."
+    groups: dict[str, list[Hit]] = {}
+    for hit in risk_hits:
+        groups.setdefault(hit.group, []).append(hit)
+    ranked = sorted(groups.items(), key=lambda kv: -kv[1][0].weight)
+
+    lines = []
+    for group_key, hits in ranked[:3]:
+        example = hits[0]
+        snippet = example.sentence[:160]
+        lines.append(f"- {group_key} ({len(hits)} lần nhắc tới): “{snippet}”")
+    return "\n".join(lines)
+
+
+def _conclusion_paragraph(audit: dict, trend: dict, risk_hits: list[Hit]) -> str:
+    concerns = []
+    if audit.get("opinion") in ("ngoại trừ", "từ chối", "trái ngược"):
+        concerns.append("ý kiến kiểm toán không phải chấp nhận toàn phần")
+    cfo_avg = trend.get("cfo_to_ni_avg")
+    if cfo_avg is not None and cfo_avg < _EARNINGS_QUALITY_THRESHOLD:
+        concerns.append("chất lượng lợi nhuận thấp (dòng tiền chưa theo kịp lợi nhuận)")
+    if any(hit.group == "hoat_dong_lien_tuc" for hit in risk_hits):
+        concerns.append("có dấu hiệu rủi ro về khả năng hoạt động liên tục")
+
+    if concerns:
+        return "Tổng thể có một số điểm cần lưu ý: " + "; ".join(concerns) + "."
+    if trend.get("revenue_cagr") is not None or trend.get("net_income_cagr") is not None:
+        return (
+            "Trong phạm vi dữ liệu đã phân tích, không phát hiện dấu hiệu bất "
+            "thường lớn về tình hình tài chính."
+        )
+    return "Không đủ dữ liệu để đưa ra kết luận tổng thể đáng tin cậy."
