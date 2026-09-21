@@ -1,6 +1,6 @@
 # Hướng dẫn lấy API: DNSE và Vietcap
 
-> Cập nhật: 19/09/2026. Quy trình của công ty chứng khoán có thể đổi — nếu màn hình khác mô tả dưới đây thì hỏi CSKH, đừng đoán.
+> Cập nhật: 21/09/2026 (đã xác nhận SDK DNSE hoạt động thật, xem mục 1.4). Quy trình của công ty chứng khoán có thể đổi — nếu màn hình khác mô tả dưới đây thì hỏi CSKH, đừng đoán.
 
 ---
 
@@ -38,13 +38,24 @@ Dịch vụ có thể chưa được kích hoạt cho tài khoản. Liên hệ D
 
 Khách hàng cá nhân thường đăng ký online được ngay; khách hàng tổ chức mới phải ký hợp đồng giấy. Nhóm mình là cá nhân nên đi đường online.
 
-### 1.4. Cài SDK và kiểm tra
+### 1.4. Cài SDK — ĐÃ XÁC NHẬN (21/09/2026): `pip install openapi-sdk` KHÔNG chạy
+
+Docs chính thức của DNSE ghi `pip install openapi-sdk`, nhưng package đó
+**chưa publish thật lên PyPI** — `pip install` báo "no matching distribution".
+Repo Git (<https://github.com/dnse-tech/openapi-sdk>) cũng không có
+`setup.py`/`pyproject.toml` nên `pip install git+...` cũng không chạy được.
+
+**Giải pháp đang dùng:** vendor nguyên văn `python/dnse/` từ repo đó vào
+`vendor/dnse-sdk/` (xem `vendor/dnse-sdk/README.md`), rồi:
 
 ```bash
-pip install openapi-sdk
+pip install -e vendor/dnse-sdk
 ```
 
-Script kiểm tra nhanh — chạy cái này **trước khi** làm gì tiếp:
+Nếu sau này DNSE publish thật lên PyPI: xoá `vendor/dnse-sdk/`, đổi lại
+`requirements.txt` dùng `openapi-sdk>=x` bình thường.
+
+Script kiểm tra nhanh sau khi cài xong:
 
 ```python
 import os
@@ -58,14 +69,16 @@ client = DNSEClient(
     base_url="https://openapi.dnse.com.vn",
 )
 
-# In ra toàn bộ phương thức SDK đang có — tên hàm có thể khác giữa các phiên bản
-print([m for m in dir(client) if not m.startswith("_")])
-
-# Thử một lệnh đọc, dry_run để xem request mà không gọi mạng thật
-print(client.get_accounts(dry_run=True))
+# Moi phuong thuc tra ve (status_code, body_text) - body la CHUOI JSON THO,
+# phai tu json.loads(). Vi du KHONG dry_run (goi that):
+status, body = client.get_instruments(symbol="FPT")
+print(status, body)
 ```
 
-**Gửi tui output của dòng `print([m for m in dir(client)...])`** — tui cần biết tên hàm thật để sửa `data/dnse.py` cho khớp.
+`data/dnse.py` đã cập nhật đúng theo API thật (đọc trực tiếp từ
+`spec/dnse-openapi-2026-09-15.yaml` trong repo SDK — xem docstring đầu file
+đó để biết chi tiết cách gọi `get_ohlc`/`get_instruments`). Đã test sống với
+API key thật: `ohlcv()`, `listing()`, `company_overview()` đều chạy đúng.
 
 ### 1.5. Cần biết thêm
 

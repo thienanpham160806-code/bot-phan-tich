@@ -7,8 +7,17 @@ pyarrow>=16.0
 tenacity>=8.2
 
 # --- nguồn dữ liệu ---
-openapi-sdk>=0.1          # SDK chính thức của DNSE
-vnstock>=4.0              # Vietcap/VCI: báo cáo tài chính, danh sách mã, ngành
+# `pip install openapi-sdk` (SDK chính thức của DNSE) KHÔNG cài được — package
+# chưa publish thật lên PyPI (đã xác nhận 21/09/2026), dù docs của DNSE nói vậy.
+# Repo Git cũng không có setup.py/pyproject.toml. Giải pháp tạm: vendor cục bộ
+# tại vendor/dnse-sdk/ — cài bằng `pip install -e vendor/dnse-sdk` (không nằm
+# trong file requirements.txt vì đây là đường dẫn cục bộ, không phải PyPI).
+# Các dòng dưới là dependency THẬT của SDK đó (xem vendor/dnse-sdk/pyproject.toml):
+urllib3>=2.0
+certifi
+websockets>=12.0
+msgpack>=1.0
+vnstock>=4.0              # Vietcap/VCI: báo cáo tài chính, danh sách mã, ngành (nguồn dự phòng)
 httpx>=0.27
 
 # --- backtest ---

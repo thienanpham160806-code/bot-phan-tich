@@ -1,21 +1,32 @@
-"""Nguon du lieu DNSE qua SDK chinh thuc (pip install openapi-sdk).
+"""Nguon du lieu DNSE qua SDK chinh thuc.
 
-Tai lieu: https://developers.dnse.com.vn
-Repo SDK: https://github.com/dnse-tech/openapi-sdk
+`pip install openapi-sdk` (theo README cua DNSE) KHONG cai duoc - package do
+chua duoc publish that len PyPI tinh den 21/09/2026, du docs chinh thuc noi
+vay. Repo Git (https://github.com/dnse-tech/openapi-sdk) cung khong co
+setup.py/pyproject.toml nen khong cai duoc qua `pip install git+...`. Giai
+phap: vendor `python/dnse/` NGUYEN VAN vao `vendor/dnse-sdk/` (xem README va
+SOURCE_COMMIT trong do), roi `pip install -e vendor/dnse-sdk`.
 
-LUU Y CHO NGUOI LAM TIEP:
-Ten phuong thuc cua SDK co the doi giua cac phien ban. Truoc khi viet tiep,
-chay thu de xem SDK dang co nhung ham gi:
+Cac chi tiet duoi day DA XAC NHAN truc tiep tu `spec/dnse-openapi-2026-09-15.yaml`
+trong repo goc (khong con la gia dinh):
 
-    from dnse import DNSEClient
-    client = DNSEClient(api_key=..., api_secret=...)
-    print([m for m in dir(client) if not m.startswith("_")])
+  - Moi phuong thuc cua DNSEClient tra ve tuple (status_code, body_text),
+    body_text la CHUOI JSON THO - phai tu json.loads(), SDK khong tu parse.
+  - GET /price/ohlc: bat buoc symbol, resolution (1,3,5,15,30,1h,1D,1W), from,
+    to (epoch giay). SDK: client.get_ohlc(bar_type, query={...}) - bar_type
+    la LOAI THI TRUONG (STOCK/DERIVATIVE/INDEX), KHONG PHAI khung thoi gian;
+    symbol/resolution/from/to nam trong `query`. Tra ve {t,o,h,l,c,v,nextTime}.
+  - GET /market/instruments: tra ve {data: [...], total, page, pageSize}.
+    Moi ban ghi co symbol, marketId (STO=HOSE, STX=HNX, UPX=UPCOM), name
+    (ten day du), shortName, listedDate. KHONG co von dieu le / so CP luu
+    hanh / mo ta hoat dong - de None, khong bia (xem company_overview()).
 
-Sau do chinh lai cac loi goi trong _call_ohlc / _call_instruments cho khop.
-Toan bo phan con lai cua he thong khong bi anh huong vi da di qua PriceProvider.
+Repo con lai: https://github.com/dnse-tech/openapi-sdk . Tai lieu API:
+https://developers.dnse.com.vn
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 
 import pandas as pd
@@ -27,12 +38,26 @@ from .base import OHLCV_COLUMNS, PriceProvider, ProviderError
 
 log = get_logger(__name__)
 
-# Anh xa do phan giai noi bo -> do phan giai cua DNSE.
-RESOLUTION_MAP = {"1m": "1", "5m": "5", "15m": "15", "1H": "60", "1D": "1D"}
+# Anh xa do phan giai noi bo -> gia tri `resolution` DNSE chap nhan (xem
+# spec /price/ohlc: "1,3,5,15,30,1h,1D,1W").
+RESOLUTION_MAP = {
+    "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+    "1H": "1h", "1D": "1D", "1W": "1W",
+}
+# marketId (endpoint /market/instruments) -> ten san dung trong he thong.
+MARKET_ID_TO_EXCHANGE = {"STO": "HOSE", "STX": "HNX", "UPX": "UPCOM"}
+EXCHANGE_TO_MARKET_ID = {v: k for k, v in MARKET_ID_TO_EXCHANGE.items()}
+_INDEX_SYMBOLS = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"}
+_INSTRUMENTS_PAGE_SIZE = 100
 
 
 def _to_epoch(value: date) -> int:
     return int(datetime(value.year, value.month, value.day, tzinfo=timezone.utc).timestamp())
+
+
+def _market_type_of(symbol: str) -> str:
+    """"STOCK" cho ma co phieu thuong, "INDEX" cho VNINDEX/VN30... (best-effort)."""
+    return "INDEX" if symbol.upper() in _INDEX_SYMBOLS else "STOCK"
 
 
 class DnseProvider(PriceProvider):
@@ -57,7 +82,8 @@ class DnseProvider(PriceProvider):
                 from dnse import DNSEClient  # type: ignore
             except ImportError as exc:  # pragma: no cover
                 raise ProviderError(
-                    "Chua cai SDK cua DNSE. Chay: pip install openapi-sdk"
+                    "Chua cai SDK cua DNSE. Chay: pip install -e vendor/dnse-sdk "
+                    "(xem vendor/dnse-sdk/README.md)"
                 ) from exc
 
             self._client = DNSEClient(
@@ -69,6 +95,16 @@ class DnseProvider(PriceProvider):
             log.info("Da khoi tao DNSE client (%s)", secrets.dnse_base_url)
         return self._client
 
+    @staticmethod
+    def _parse_response(status: int | None, body: str | None, what: str) -> dict:
+        """Kiem tra status va json.loads() body_text - DNSEClient khong tu parse."""
+        if status is None or status >= 300:
+            raise ProviderError(f"DNSE {what} tra ve HTTP {status}: {body}")
+        try:
+            return json.loads(body) if body else {}
+        except (TypeError, ValueError) as exc:
+            raise ProviderError(f"DNSE {what} tra ve JSON khong hop le: {exc}") from exc
+
     # ------------------------------------------------------------------- goi API
     @retry(
         retry=retry_if_exception_type(ProviderError),
@@ -76,84 +112,104 @@ class DnseProvider(PriceProvider):
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def _call_ohlc(self, symbol: str, start: date, end: date, resolution: str) -> object:
-        """Goi endpoint OHLC. Tach rieng de de sua khi SDK doi chu ky ham."""
+    def _call_ohlc(self, symbol: str, start: date, end: date, resolution: str) -> dict:
         try:
-            return self.client.get_ohlc(
-                symbol=symbol,
-                resolution=RESOLUTION_MAP.get(resolution, "1D"),
-                from_=_to_epoch(start),
-                to=_to_epoch(end),
+            status, body = self.client.get_ohlc(
+                _market_type_of(symbol),
+                query={
+                    "symbol": symbol.upper(),
+                    "resolution": RESOLUTION_MAP.get(resolution, "1D"),
+                    "from": _to_epoch(start),
+                    "to": _to_epoch(end),
+                },
             )
         except Exception as exc:  # SDK nem nhieu loai loi khac nhau
             raise ProviderError(f"DNSE get_ohlc that bai cho {symbol}: {exc}") from exc
+        return self._parse_response(status, body, f"get_ohlc({symbol})")
 
-    def _call_instruments(self) -> object:
+    def _call_instruments_page(self, market_id: str, page: int) -> dict:
         try:
-            return self.client.get_instruments()
+            status, body = self.client.get_instruments(
+                market_id=market_id, limit=_INSTRUMENTS_PAGE_SIZE, page=page
+            )
         except Exception as exc:
             raise ProviderError(f"DNSE get_instruments that bai: {exc}") from exc
+        return self._parse_response(status, body, "get_instruments")
 
     # --------------------------------------------------------------- PriceProvider
     def ohlcv(
         self, symbol: str, start: date, end: date, resolution: str = "1D"
     ) -> pd.DataFrame:
-        raw = self._call_ohlc(symbol, start, end, resolution)
-        frame = _normalise_ohlc(raw)
+        payload = self._call_ohlc(symbol, start, end, resolution)
+        frame = _normalise_ohlc(payload)
         if frame.empty:
             raise ProviderError(f"DNSE tra ve rong cho {symbol}")
         frame["symbol"] = symbol.upper()
         return frame
 
     def listing(self, exchanges: list[str] | None = None) -> pd.DataFrame:
-        raw = self._call_instruments()
-        frame = pd.DataFrame(raw if isinstance(raw, list) else getattr(raw, "data", []) or [])
+        if exchanges:
+            wanted = [e.upper() for e in exchanges]
+            market_ids = [EXCHANGE_TO_MARKET_ID[e] for e in wanted if e in EXCHANGE_TO_MARKET_ID]
+        else:
+            market_ids = list(MARKET_ID_TO_EXCHANGE)
+
+        rows: list[dict] = []
+        for market_id in market_ids:
+            page = 1
+            while True:
+                payload = self._call_instruments_page(market_id, page)
+                data = payload.get("data") or []
+                rows.extend(data)
+                total = payload.get("total", len(rows))
+                if not data or page * _INSTRUMENTS_PAGE_SIZE >= total:
+                    break
+                page += 1
+
+        frame = pd.DataFrame(rows)
         if frame.empty:
             raise ProviderError("DNSE tra ve danh sach ma rong")
 
-        rename = {"symbol": "symbol", "exchange": "exchange", "companyName": "organ_name"}
-        frame = frame.rename(columns={k: v for k, v in rename.items() if k in frame.columns})
-        if exchanges:
-            wanted = {e.upper() for e in exchanges}
-            frame = frame[frame["exchange"].str.upper().isin(wanted)]
-        return frame.reset_index(drop=True)
+        frame["exchange"] = frame["marketId"].map(MARKET_ID_TO_EXCHANGE)
+        frame["organ_name"] = frame.get("name", frame.get("shortName"))
+        frame["symbol"] = frame["symbol"].astype(str).str.upper()
+        return frame[["symbol", "exchange", "organ_name"]].reset_index(drop=True)
 
-
-def _normalise_ohlc(raw: object) -> pd.DataFrame:
-    """Dua nhieu dang tra ve khac nhau ve cung mot khung DataFrame chuan.
-
-    DNSE co the tra ve dict dang {t: [...], o: [...], ...} hoac danh sach ban ghi.
-    Ham nay chiu trach nhiem lam phang su khac biet do.
-    """
-    payload = raw
-    if isinstance(raw, tuple) and len(raw) == 2:  # SDK tra (status, body)
-        payload = raw[1]
-    if hasattr(payload, "data"):
-        payload = payload.data
-
-    if isinstance(payload, dict) and "t" in payload:
-        frame = pd.DataFrame(
-            {
-                "time": pd.to_datetime(payload["t"], unit="s"),
-                "open": payload.get("o"),
-                "high": payload.get("h"),
-                "low": payload.get("l"),
-                "close": payload.get("c"),
-                "volume": payload.get("v"),
-            }
-        )
-    elif isinstance(payload, list):
-        frame = pd.DataFrame(payload)
-        alias = {
-            "t": "time", "tradingDate": "time", "date": "time",
-            "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume",
+    def company_overview(self, symbol: str) -> dict:
+        """Ho so tu /market/instruments: chi co full_name + listed_date thuc
+        su co du lieu. Von dieu le/so CP luu hanh/mo ta KHONG co trong
+        endpoint nay - khong bia, de trong."""
+        try:
+            status, body = self.client.get_instruments(symbol=symbol.upper())
+            payload = self._parse_response(status, body, f"get_instruments({symbol})")
+        except ProviderError as exc:
+            log.warning("company_overview(%s) that bai: %s", symbol, exc)
+            return {}
+        rows = payload.get("data") or []
+        if not rows:
+            return {}
+        row = rows[0]
+        return {
+            "full_name": row.get("name") or row.get("shortName"),
+            "listed_date": row.get("listedDate"),
         }
-        frame = frame.rename(columns={k: v for k, v in alias.items() if k in frame.columns})
-        if "time" in frame.columns:
-            frame["time"] = pd.to_datetime(frame["time"], errors="coerce", utc=False)
-    else:
+
+
+def _normalise_ohlc(payload: dict) -> pd.DataFrame:
+    """DNSE tra ve {t,o,h,l,c,v,nextTime} (mang song song) cho GET /price/ohlc."""
+    if not isinstance(payload, dict) or "t" not in payload:
         return pd.DataFrame(columns=OHLCV_COLUMNS)
 
+    frame = pd.DataFrame(
+        {
+            "time": pd.to_datetime(payload["t"], unit="s"),
+            "open": payload.get("o"),
+            "high": payload.get("h"),
+            "low": payload.get("l"),
+            "close": payload.get("c"),
+            "volume": payload.get("v"),
+        }
+    )
     for col in OHLCV_COLUMNS:
         if col not in frame.columns:
             frame[col] = pd.NA
