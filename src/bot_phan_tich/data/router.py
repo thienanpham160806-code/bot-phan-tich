@@ -179,8 +179,7 @@ class DataRouter:
 
     def company_overview(self, symbol: str) -> dict:
         """Ho so doanh nghiep (ten, ngay niem yet, von dieu le...). Xem
-        FundamentalProvider.company_overview trong data/base.py - chua co
-        nguon xac nhan day du, thuong tra dict rong cho toi khi duoc cai.
+        FundamentalProvider.company_overview trong data/base.py.
         """
         for name in self._fund_names:
             try:
@@ -190,6 +189,19 @@ class DataRouter:
             except (Exception, SystemExit) as exc:
                 log.warning("company_overview() that bai o nguon %s cho %s: %s", name, symbol, exc)
         return {}
+
+    def company_news(self, symbol: str, days: int = 180) -> list[dict]:
+        """Cong bo thong tin / tin tuc gan day. Xem
+        FundamentalProvider.company_news trong data/base.py.
+        """
+        for name in self._fund_names:
+            try:
+                news = self._get(name).company_news(symbol, days)  # type: ignore[attr-defined]
+                if news:
+                    return news
+            except (Exception, SystemExit) as exc:
+                log.warning("company_news() that bai o nguon %s cho %s: %s", name, symbol, exc)
+        return []
 
 
 def _slice(frame: pd.DataFrame, start: date, end: date) -> pd.DataFrame:

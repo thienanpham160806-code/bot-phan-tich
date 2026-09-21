@@ -181,6 +181,17 @@ _CFO_COLUMNS = ["operating_cash_flow", "netCashFlowFromOperating", "cfo"]
 _YEAR_COLUMNS = ["period", "year", "yearReport"]
 _EARNINGS_QUALITY_THRESHOLD = 0.8
 
+# Item_id trong bao cao "ratios" (DA XAC NHAN tren vnstock 4.0.8 that, vi du
+# FPT nam 2025: roe=28.30, roa=11.71, debt_to_equity=48.17, short_term_ratio=1.40
+# - CA BA deu la SO PHAN TRAM san (vd 28.30 nghia la 28.30%), rieng
+# short_term_ratio la SO LAN (vd 1.40 nghia la 1.40 lan), khong phai phan tram.
+_RATIO_TREND_COLUMNS: dict[str, list[str]] = {
+    "roe": ["roe"],
+    "roa": ["roa"],
+    "debt_to_equity": ["debt_to_equity"],
+    "current_ratio": ["short_term_ratio"],
+}
+
 
 def _find_column(frame: pd.DataFrame, candidates: list[str]) -> str | None:
     return next((c for c in candidates if c in frame.columns), None)
@@ -194,7 +205,8 @@ def _cagr(first: float, last: float, years: int) -> float | None:
 
 
 def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
-    """Tinh CAGR doanh thu/LNST/tong tai san/VCSH, bien loi nhuan va chat
+    """Tinh CAGR + gia tri tung nam cua doanh thu/LNST/tong tai san/VCSH, bien
+    loi nhuan, ROE/ROA/no-VCSH/thanh khoan (tu bao cao "ratios"), va chat
     luong loi nhuan (CFO/LNST) tu bao cao tai chinh nhieu nam.
 
     `financials` co dang tra ve cua data/router.py:financials() - dict voi
@@ -202,11 +214,14 @@ def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
     theo nam (period="year"), SAP XEP TANG DAN theo thoi gian.
 
     Tra ve dict, chi dien cac khoa TINH DUOC (thieu cot nao thi bo qua khoa
-    do va ghi vao "notes" - khong bia so).
+    do va ghi vao "notes" - khong bia so). Cac khoa "*_by_year" la dict
+    {nam: gia_tri} de generate_commentary() trich dan duoc TUNG NAM, khong
+    chi mot con so CAGR gop chung.
     """
     income = financials.get("income", pd.DataFrame())
     balance = financials.get("balance", pd.DataFrame())
     cashflow = financials.get("cashflow", pd.DataFrame())
+    ratios = financials.get("ratios", pd.DataFrame())
 
     result: dict = {"years": [], "notes": []}
 
@@ -223,6 +238,7 @@ def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
 
     if rev_col:
         revenue = income[rev_col].astype(float)
+        result["revenue_by_year"] = dict(zip(years, revenue, strict=False))
         result["revenue_cagr"] = _cagr(revenue.iloc[0], revenue.iloc[-1], len(revenue) - 1)
         if ni_col:
             net_income = income[ni_col].astype(float)
@@ -239,6 +255,7 @@ def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
     if ni_col:
         net_income = income[ni_col].astype(float)
         years_span = len(net_income) - 1
+        result["net_income_by_year"] = dict(zip(years, net_income, strict=False))
         result["net_income_cagr"] = _cagr(net_income.iloc[0], net_income.iloc[-1], years_span)
     else:
         result["notes"].append("Khong tim duoc cot loi nhuan sau thue")
@@ -246,11 +263,13 @@ def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
     asset_col = _find_column(balance, _TREND_COLUMNS["total_assets"])
     if asset_col and not balance.empty:
         assets = balance[asset_col].astype(float)
+        result["total_assets_by_year"] = dict(zip(years, assets, strict=False))
         result["total_assets_cagr"] = _cagr(assets.iloc[0], assets.iloc[-1], len(assets) - 1)
 
     equity_col = _find_column(balance, _TREND_COLUMNS["equity"])
     if equity_col and not balance.empty:
         equity = balance[equity_col].astype(float)
+        result["equity_by_year"] = dict(zip(years, equity, strict=False))
         result["equity_cagr"] = _cagr(equity.iloc[0], equity.iloc[-1], len(equity) - 1)
 
     cfo_col = _find_column(cashflow, _CFO_COLUMNS)
@@ -258,10 +277,19 @@ def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
         n = min(len(cashflow), len(income))
         cfo = cashflow[cfo_col].astype(float).tail(n).reset_index(drop=True)
         net_income_tail = income[ni_col].astype(float).tail(n).reset_index(drop=True)
-        ratios = cfo / net_income_tail.replace(0, pd.NA)
-        result["cfo_to_ni_by_year"] = dict(zip(years[-n:], ratios, strict=False))
-        valid = ratios.dropna()
+        cfo_ratio = cfo / net_income_tail.replace(0, pd.NA)
+        result["cfo_to_ni_by_year"] = dict(zip(years[-n:], cfo_ratio, strict=False))
+        valid = cfo_ratio.dropna()
         result["cfo_to_ni_avg"] = float(valid.mean()) if not valid.empty else None
+
+    ratio_year_col = _find_column(ratios, _YEAR_COLUMNS)
+    if ratio_year_col and not ratios.empty:
+        ratio_years = ratios[ratio_year_col].tolist()
+        for key, candidates in _RATIO_TREND_COLUMNS.items():
+            col = _find_column(ratios, candidates)
+            if col:
+                series = pd.to_numeric(ratios[col], errors="coerce")
+                result[f"{key}_by_year"] = dict(zip(ratio_years, series, strict=False))
 
     return result
 
@@ -307,6 +335,53 @@ def generate_commentary(symbol: str, audit: dict, risk_hits: list[Hit], trend: d
     return "\n".join(lines)
 
 
+def _fmt_billion(value) -> str:
+    """Hien so tien lon dang 'X,XXX ty dong' - de doc hon so nguyen VND day du."""
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"{value / 1e9:,.0f} tỷ đồng"
+
+
+def _fmt_frac_pct(value) -> str:
+    """Cho cac ty le TU TINH (vd net_income/revenue) - dang phan so 0-1."""
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"{value:.1%}"
+
+
+def _fmt_ratio_pct(value) -> str:
+    """Cho cac chi so LAY TU BAO CAO "ratios" (roe/roa/debt_to_equity) - DA o
+    dang phan tram san (vd 28.30 nghia la 28.30%), khac voi _fmt_frac_pct."""
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"{value:.1f}%"
+
+
+def _fmt_times(value) -> str:
+    if value is None or pd.isna(value):
+        return "n/a"
+    return f"{value:.2f} lần"
+
+
+def _series_line(label: str, by_year: dict, fmt) -> str | None:
+    """'Nhan: 2022: X | 2023: Y | ...' - bo qua nam thieu du lieu. None neu rong."""
+    if not by_year:
+        return None
+    parts = [f"{year}: {fmt(value)}" for year, value in by_year.items()]
+    return f"{label}: " + " | ".join(parts) + "."
+
+
+def _yoy_change(by_year: dict) -> tuple[str, str, float] | None:
+    """So sanh nam gan nhat voi nam lien truoc. Tra (nam_gan_nhat, nam_truoc, ty_le)."""
+    years = list(by_year)
+    if len(years) < 2:
+        return None
+    last, prev = by_year[years[-1]], by_year[years[-2]]
+    if prev is None or pd.isna(prev) or prev == 0 or last is None or pd.isna(last):
+        return None
+    return years[-1], years[-2], float(last / prev - 1)
+
+
 def _audit_paragraph(audit: dict) -> str:
     opinion, evidence = audit.get("opinion"), audit.get("evidence")
     if opinion == "ngoại trừ":
@@ -321,47 +396,111 @@ def _audit_paragraph(audit: dict) -> str:
 def _growth_paragraph(trend: dict) -> str:
     years = trend.get("years") or []
     span = f"{years[0]}-{years[-1]}" if len(years) >= 2 else "giai đoạn có dữ liệu"
-    parts = []
+    lines: list[str] = []
+
+    rev_by_year = trend.get("revenue_by_year") or {}
+    line = _series_line("Doanh thu", rev_by_year, _fmt_billion)
+    if line:
+        lines.append(line)
     if trend.get("revenue_cagr") is not None:
-        parts.append(f"doanh thu tăng trưởng bình quân {trend['revenue_cagr']:+.1%}/năm ({span})")
+        rev_cagr = trend["revenue_cagr"]
+        lines.append(f"Tốc độ tăng trưởng kép doanh thu bình quân {rev_cagr:+.1%}/năm ({span}).")
+    rev_yoy = _yoy_change(rev_by_year)
+    if rev_yoy:
+        last_y, prev_y, pct = rev_yoy
+        huong = "tăng" if pct >= 0 else "giảm"
+        lines.append(f"Riêng năm {last_y}, doanh thu {huong} {abs(pct):.1%} so với năm {prev_y}.")
+
+    ni_by_year = trend.get("net_income_by_year") or {}
+    line = _series_line("Lợi nhuận sau thuế", ni_by_year, _fmt_billion)
+    if line:
+        lines.append(line)
     if trend.get("net_income_cagr") is not None:
         ni_cagr = trend["net_income_cagr"]
-        parts.append(f"lợi nhuận sau thuế tăng trưởng bình quân {ni_cagr:+.1%}/năm")
-    if not parts:
-        return "Không có đủ dữ liệu doanh thu/lợi nhuận theo năm để tính tốc độ tăng trưởng."
-    return f"Trong {span}, " + "; ".join(parts) + "."
+        lines.append(f"Tốc độ tăng trưởng kép lợi nhuận sau thuế bình quân {ni_cagr:+.1%}/năm.")
+    ni_yoy = _yoy_change(ni_by_year)
+    if ni_yoy:
+        last_y, prev_y, pct = ni_yoy
+        huong = "tăng" if pct >= 0 else "giảm"
+        lines.append(
+            f"Riêng năm {last_y}, lợi nhuận sau thuế {huong} {abs(pct):.1%} so với năm {prev_y}."
+        )
+
+    if not lines:
+        return "Không có đủ dữ liệu doanh thu/lợi nhuận theo năm để phân tích tăng trưởng."
+    return "\n".join(lines)
 
 
 def _profitability_paragraph(trend: dict) -> str:
-    margins = trend.get("net_margin_by_year") or {}
-    if not margins:
-        return "Không có dữ liệu biên lợi nhuận ròng theo năm."
-    last_year = list(margins)[-1]
-    return f"Biên lợi nhuận ròng năm {last_year} đạt {margins[last_year]:.1%}."
+    lines: list[str] = []
+    for label, key, fmt in (
+        ("Biên lợi nhuận gộp", "gross_margin_by_year", _fmt_frac_pct),
+        ("Biên lợi nhuận ròng", "net_margin_by_year", _fmt_frac_pct),
+        ("ROE (lợi nhuận / vốn chủ sở hữu)", "roe_by_year", _fmt_ratio_pct),
+        ("ROA (lợi nhuận / tổng tài sản)", "roa_by_year", _fmt_ratio_pct),
+    ):
+        line = _series_line(label, trend.get(key) or {}, fmt)
+        if line:
+            lines.append(line)
+
+    if not lines:
+        return "Không có dữ liệu biên lợi nhuận/ROE/ROA theo năm."
+    return "\n".join(lines)
 
 
 def _structure_paragraph(trend: dict) -> str:
-    parts = []
+    lines: list[str] = []
+    line = _series_line("Tổng tài sản", trend.get("total_assets_by_year") or {}, _fmt_billion)
+    if line:
+        lines.append(line)
     if trend.get("total_assets_cagr") is not None:
-        parts.append(f"tổng tài sản tăng trưởng bình quân {trend['total_assets_cagr']:+.1%}/năm")
+        assets_cagr = trend["total_assets_cagr"]
+        lines.append(f"Tổng tài sản tăng trưởng kép bình quân {assets_cagr:+.1%}/năm.")
+
+    line = _series_line("Vốn chủ sở hữu", trend.get("equity_by_year") or {}, _fmt_billion)
+    if line:
+        lines.append(line)
     if trend.get("equity_cagr") is not None:
-        parts.append(f"vốn chủ sở hữu tăng trưởng bình quân {trend['equity_cagr']:+.1%}/năm")
-    if not parts:
+        equity_cagr = trend["equity_cagr"]
+        lines.append(f"Vốn chủ sở hữu tăng trưởng kép bình quân {equity_cagr:+.1%}/năm.")
+
+    debt_col = trend.get("debt_to_equity_by_year") or {}
+    line = _series_line("Tỷ lệ Nợ/Vốn chủ sở hữu", debt_col, _fmt_ratio_pct)
+    if line:
+        lines.append(line)
+    current_col = trend.get("current_ratio_by_year") or {}
+    line = _series_line("Khả năng thanh toán hiện hành", current_col, _fmt_times)
+    if line:
+        lines.append(line)
+
+    if not lines:
         return "Không có dữ liệu tổng tài sản/vốn chủ sở hữu để đánh giá cơ cấu tài chính."
-    return ("Về cơ cấu tài chính, " + "; ".join(parts) + ".")
+    return "\n".join(lines)
 
 
 def _earnings_quality_paragraph(trend: dict) -> str:
+    by_year = trend.get("cfo_to_ni_by_year") or {}
     avg = trend.get("cfo_to_ni_avg")
     if avg is None:
         return "Không có dữ liệu dòng tiền hoạt động để đánh giá chất lượng lợi nhuận."
-    warning = (
-        f" — thấp hơn mức {_EARNINGS_QUALITY_THRESHOLD}, dấu hiệu lợi nhuận"
-        " chưa đi kèm tiền thật"
-        if avg < _EARNINGS_QUALITY_THRESHOLD
-        else ""
-    )
-    return f"Tỷ lệ dòng tiền hoạt động/lợi nhuận sau thuế bình quân {avg:.2f}{warning}."
+
+    lines: list[str] = []
+    label = "Tỷ lệ dòng tiền hoạt động/lợi nhuận sau thuế"
+    line = _series_line(label, by_year, lambda v: f"{v:.2f}")
+    if line:
+        lines.append(line)
+    lines.append(f"Bình quân giai đoạn: {avg:.2f}.")
+
+    low_years = [
+        y for y, v in by_year.items()
+        if v is not None and not pd.isna(v) and v < _EARNINGS_QUALITY_THRESHOLD
+    ]
+    if low_years:
+        lines.append(
+            f"Các năm {', '.join(str(y) for y in low_years)} có tỷ lệ dưới mức "
+            f"{_EARNINGS_QUALITY_THRESHOLD} — dấu hiệu lợi nhuận chưa đi kèm tiền thật."
+        )
+    return "\n".join(lines)
 
 
 def _risk_paragraph(risk_hits: list[Hit]) -> str:
@@ -373,10 +512,19 @@ def _risk_paragraph(risk_hits: list[Hit]) -> str:
     ranked = sorted(groups.items(), key=lambda kv: -kv[1][0].weight)
 
     lines = []
-    for group_key, hits in ranked[:3]:
-        example = hits[0]
-        snippet = example.sentence[:160]
-        lines.append(f"- {group_key} ({len(hits)} lần nhắc tới): “{snippet}”")
+    for group_key, hits in ranked:
+        lines.append(f"<b>{group_key}</b> ({len(hits)} lần nhắc tới):")
+        # Toi da 3 vi du moi nhom, tranh nhan xet qua dai khi van ban co rat nhieu trung lap.
+        seen_sentences: set[str] = set()
+        shown = 0
+        for hit in hits:
+            if hit.sentence in seen_sentences:
+                continue
+            seen_sentences.add(hit.sentence)
+            lines.append(f"  - “{hit.sentence[:200]}”")
+            shown += 1
+            if shown >= 3:
+                break
     return "\n".join(lines)
 
 

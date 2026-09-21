@@ -28,10 +28,22 @@ DA XAC NHAN (kiem tra truc tiep tren vnstock 4.0.8, khong con la gia dinh):
     voi 4 muc do chi tiet (icb_level 1-4); chon muc 4 (chi tiet nhat, vd
     "Moi gioi chung khoan" thay vi "Tai chinh") va doi ten cot thanh
     "industry" cho khop quy uoc chung cua he thong.
+  - `ref.company(symbol=...).info()` co ho so day du: business_model (mo ta
+    hoat dong), charter_capital, listing_date, outstanding_shares... - nguon
+    that cho company_overview() (truoc day luon tra rong).
+  - `ref.company(symbol=...).news()` (facade mac dinh source="kbs") CHI tra
+    ve 1 tin moi nhat, khong loc duoc theo ngay. Nguon phong phu hon la
+    module noi bo `vnstock.explorer.vci.company.Company(symbol=...).news()`
+    (nguon VCI - CHINH Vietcap dang dung o day) - tra ve toi da 50 tin/cong
+    bo thong tin gan nhat (da kiem chung thuc te: 44 tin cho FPT trong 180
+    ngay), co cot `public_date` de tu loc theo khoang thoi gian. Day la cac
+    cong bo thong tin CHINH THUC (nghi quyet HDQT, phat hanh co phieu, ket
+    qua kinh doanh...), khong phai bao chi - phu hop de hien "cap nhat gan
+    day" hon la "tin tuc" thong thuong.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
@@ -180,3 +192,70 @@ class VietcapProvider(PriceProvider, FundamentalProvider):
         frame = frame[frame.get("icb_level") == _INDUSTRY_LEVEL]
         frame = frame.rename(columns={"icb_name": "industry"})
         return frame[["symbol", "industry"]].reset_index(drop=True)
+
+    def company_overview(self, symbol: str) -> dict:
+        _, reference, _ = self._modules()
+        frame = self._guard(
+            lambda: reference.company(symbol=symbol.upper()).info(),
+            f"company_overview({symbol})",
+        )
+        if frame is None or frame.empty:
+            return {}
+        row = frame.iloc[0]
+        # LUU Y: "charter_capital" tu vnstock tinh bang TY DONG (vd FPT ra
+        # 17413.0 nghia la 17,413 ty dong) - nhan 1e9 de quy ve VND, cho
+        # cung don vi voi shares_outstanding*gia (xem analysis/lookup.py).
+        charter_capital = _clean_float(row.get("charter_capital"))
+        overview = {
+            "listed_date": _clean_str(row.get("listing_date")),
+            "charter_capital": charter_capital * 1e9 if charter_capital is not None else None,
+            "shares_outstanding": _clean_float(row.get("outstanding_shares")),
+            "description": _clean_str(row.get("business_model")),
+        }
+        return {k: v for k, v in overview.items() if v is not None}
+
+    def company_news(self, symbol: str, days: int = 180) -> list[dict]:
+        """Cong bo thong tin chinh thuc gan day, qua module VCI noi bo cua
+        vnstock (xem ghi chu dau file). `Reference().company().news()` mac
+        dinh (source="kbs") chi tra 1 tin nen KHONG dung o day.
+        """
+        try:
+            from vnstock.explorer.vci.company import Company as VciCompany  # type: ignore
+        except ImportError as exc:  # pragma: no cover
+            raise ProviderError("Chua co vnstock.explorer.vci (kiem tra ban vnstock)") from exc
+
+        frame = self._guard(
+            lambda: VciCompany(symbol=symbol.upper()).news(), f"company_news({symbol})"
+        )
+        if frame is None or frame.empty or "public_date" not in frame.columns:
+            return []
+
+        cutoff = datetime.now() - timedelta(days=days)
+        frame = frame.copy()
+        frame["public_date"] = pd.to_datetime(frame["public_date"], errors="coerce")
+        frame = frame[frame["public_date"] >= cutoff].sort_values("public_date", ascending=False)
+
+        title_col = "news_title" if "news_title" in frame.columns else None
+        if title_col is None:
+            return []
+        return [
+            {"title": str(row[title_col]), "published_at": row["public_date"]}
+            for _, row in frame.iterrows()
+            if pd.notna(row[title_col])
+        ]
+
+
+def _clean_str(value) -> str | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _clean_float(value) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
