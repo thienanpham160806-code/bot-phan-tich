@@ -90,6 +90,14 @@ class VietcapProvider(PriceProvider, FundamentalProvider):
     def _guard(fn, what: str):
         try:
             return fn()
+        except SystemExit as exc:
+            # QUAN TRONG: vnstock (qua vnai) goi thang sys.exit() khi cham
+            # gioi han rate limit, thay vi nem mot exception binh thuong.
+            # SystemExit ke thua tu BaseException nen "except Exception" o
+            # duoi KHONG bat duoc - neu khong chan rieng o day, no se giet
+            # chet toan bo tien trinh bot (xuyen qua ca middleware ErrorGuard
+            # trong bot/main.py, vi ErrorGuard cung chi bat Exception).
+            raise ProviderError(f"Vietcap/{what} bi chan (vnstock tu thoat): {exc}") from exc
         except Exception as exc:
             raise ProviderError(f"Vietcap/{what} that bai: {exc}") from exc
 
