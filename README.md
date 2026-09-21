@@ -3,9 +3,10 @@
 Telegram Bot phân tích kỹ thuật chứng khoán Việt Nam — hợp lưu ba hệ chỉ báo
 **MACD, RSI (ngưỡng thích ứng), Ichimoku Kinko Hyo**.
 
-Nguồn dữ liệu: **DNSE OpenAPI** (giá, khớp lệnh — nguồn chính) và
-**Vietcap/VCI** qua `vnstock` (báo cáo tài chính, danh sách mã, ngành — nguồn
-dự phòng). Realtime (WebSocket/MQTT) **chưa cài** vì nhóm chưa có API key —
+Nguồn dữ liệu: **DNSE OpenAPI** (giá cuối phiên, danh sách mã — nguồn chính,
+đã test sống) và **Vietcap/VCI** qua `vnstock` (báo cáo tài chính, danh sách
+mã, ngành — nguồn dự phòng). Realtime (WebSocket/MQTT streaming) là tính
+năng **riêng, chưa cài** (`data/realtime.py` mới có giao diện + stub) —
 xem [`docs/lay-api.md`](docs/lay-api.md); bot chạy đầy đủ bằng dữ liệu cuối
 phiên trong lúc chờ.
 
@@ -56,6 +57,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
+pip install -e vendor/dnse-sdk   # SDK DNSE (vendor cuc bo, xem muc 6 & vendor/dnse-sdk/README.md)
 cp .env.example .env   # Windows: copy .env.example .env
 ```
 
@@ -67,10 +69,15 @@ Mở `.env` và điền:
 | `DNSE_API_KEY`, `DNSE_API_SECRET` | Đăng ký ứng dụng tại <https://developers.dnse.com.vn> (xem `docs/lay-api.md`) |
 | `VNSTOCK_ACCEPT_TOS` | Đặt `1` sau khi chạy `register_user()` của vnstock một lần |
 
-> **Không bao giờ** commit file `.env`. File này đã nằm trong `.gitignore`.
-> Hiện tại nhóm **chưa có** `DNSE_API_KEY`/`DNSE_API_SECRET` — `data/router.py`
-> tự động dùng nguồn dự phòng (Vietcap/VCI qua `vnstock`, không cần API key)
-> nên bot vẫn chạy được đầy đủ phần dữ liệu cuối phiên trong lúc chờ.
+> **Không bao giờ** commit file `.env`. File này đã nằm trong `.gitignore`
+> (chỉ `.env.example` — bản mẫu rỗng — mới được commit).
+>
+> `pip install openapi-sdk` (SDK chính thức của DNSE) **không cài được** —
+> package chưa publish thật lên PyPI. Cài bằng bản vendor cục bộ:
+> `pip install -e vendor/dnse-sdk` (xem `vendor/dnse-sdk/README.md`). Chưa
+> có `DNSE_API_KEY`/`DNSE_API_SECRET` hoặc chưa cài SDK cũng không sao —
+> `data/router.py` tự động dùng nguồn dự phòng (Vietcap/VCI qua `vnstock`,
+> không cần API key) nên bot vẫn chạy được đầy đủ phần dữ liệu cuối phiên.
 
 ---
 
