@@ -2,6 +2,15 @@
 
 Day la diem duy nhat trong he thong biet ten cac nguon. Phan con lai chi goi
 get_router().ohlcv(...) va khong quan tam du lieu den tu dau.
+
+Moi loi tu mot nguon deu duoc bat bang `except (Exception, SystemExit)`,
+KHONG chi `except Exception`: vnstock (qua vnai) da duoc quan sat thuc te
+la goi thang sys.exit() khi cham gioi han rate limit thay vi nem mot
+exception binh thuong - SystemExit ke thua tu BaseException nen "except
+Exception" khong bat duoc, va se giet chet ca tien trinh bot (xuyen qua ca
+middleware ErrorGuard). data/vietcap.py da chan truong hop nay tan goc, day
+la lop phong thu thu hai o diem trung tam, phong khi mot nguon khac sau nay
+cung lam vay.
 """
 from __future__ import annotations
 
@@ -76,7 +85,7 @@ class DataRouter:
                 cache.write_frame(key, frame)
                 log.info("%s: lay %d phien tu nguon %s", symbol, len(frame), name)
                 return _slice(frame, start, end)
-            except Exception as exc:
+            except (Exception, SystemExit) as exc:
                 errors.append(f"{name}: {exc}")
                 log.warning("Nguon %s that bai cho %s -> %s", name, symbol, exc)
 
@@ -103,7 +112,7 @@ class DataRouter:
                 if not frame.empty:
                     cache.write_frame(key, frame)
                     return frame
-            except Exception as exc:
+            except (Exception, SystemExit) as exc:
                 log.warning("listing() that bai o nguon %s: %s", name, exc)
 
         stale = cache.read_frame(key)
@@ -117,7 +126,7 @@ class DataRouter:
                 frame = self._get(name).foreign_flow(symbol, start, end)  # type: ignore
                 if frame is not None and not frame.empty:
                     return frame
-            except Exception as exc:
+            except (Exception, SystemExit) as exc:
                 log.debug("foreign_flow khong co o nguon %s: %s", name, exc)
         return pd.DataFrame(columns=["time", "foreign_buy_volume", "foreign_sell_volume"])
 
@@ -148,7 +157,7 @@ class DataRouter:
                 for part, frame in bundle.items():
                     cache.write_frame(f"{key}/{part}", frame)
                 return bundle
-            except Exception as exc:
+            except (Exception, SystemExit) as exc:
                 log.warning("financials() that bai o nguon %s cho %s: %s", name, symbol, exc)
 
         return {p: pd.DataFrame() for p in ("income", "balance", "cashflow", "ratios")}
@@ -164,7 +173,7 @@ class DataRouter:
                 if not frame.empty:
                     cache.write_frame(key, frame)
                     return frame
-            except Exception as exc:
+            except (Exception, SystemExit) as exc:
                 log.warning("industry_map() that bai o nguon %s: %s", name, exc)
         return pd.DataFrame(columns=["symbol", "industry"])
 
@@ -178,7 +187,7 @@ class DataRouter:
                 overview = self._get(name).company_overview(symbol)  # type: ignore[attr-defined]
                 if overview:
                     return overview
-            except Exception as exc:
+            except (Exception, SystemExit) as exc:
                 log.warning("company_overview() that bai o nguon %s cho %s: %s", name, symbol, exc)
         return {}
 
