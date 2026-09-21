@@ -106,6 +106,30 @@ def _metric_line(label: str, metric) -> str:
 _DESCRIPTION_MAX_CHARS = 400
 
 
+def _format_description(raw: str) -> str:
+    """Mo ta hoat dong tu vnstock thuong co nhieu gach dau dong ngan cach
+    boi ky tu xuong dong that (\\n) - giu NGUYEN xuong dong do (Telegram
+    HTML van hien dung newline that, khac voi HTML trinh duyet), chi cat bot
+    khi qua dai thay vi don het thanh mot dong lien tuc.
+    """
+    raw_lines = [ln.strip() for ln in raw.strip().splitlines() if ln.strip()]
+
+    kept: list[str] = []
+    used = 0
+    for ln in raw_lines:
+        if used + len(ln) > _DESCRIPTION_MAX_CHARS:
+            remaining = _DESCRIPTION_MAX_CHARS - used
+            if remaining > 20:  # con du cho de cat co nghia, khong thi bo han dong nay
+                kept.append(ln[:remaining].rstrip() + "…")
+            else:
+                kept.append("…")
+            break
+        kept.append(ln)
+        used += len(ln)
+
+    return f"<i>{escape(chr(10).join(kept))}</i>"
+
+
 def lookup_card(profile) -> str:
     lines = [
         f"<b>{escape(profile.symbol)}</b> — "
@@ -118,10 +142,7 @@ def lookup_card(profile) -> str:
     ]
 
     if profile.description:
-        desc = profile.description.strip().replace("\n", " ")
-        if len(desc) > _DESCRIPTION_MAX_CHARS:
-            desc = desc[:_DESCRIPTION_MAX_CHARS].rstrip() + "…"
-        lines.append(f"<i>{escape(desc)}</i>")
+        lines.append(_format_description(profile.description))
 
     lines.extend(
         [
