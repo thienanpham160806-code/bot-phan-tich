@@ -18,21 +18,25 @@ from ..logging_conf import get_logger
 
 log = get_logger(__name__)
 
-# TODO: ten cot ratios thuc te tu vnstock/DNSE CAN duoc xac nhan khi co du
-# lieu that (chua kiem tra duoc vi chua co API key - xem docs/lay-api.md).
-# Danh sach candidates o day la DU DOAN hop ly dua tren quy uoc dat ten pho
-# bien, chinh lai cho khop ngay khi co ket qua goi API thuc te dau tien.
+# Ten cot (item_id) DA XAC NHAN tren vnstock 4.0.8 thuc te (Fundamental().
+# equity(symbol=...).ratios()) - vd trai vinh xem data/vietcap.py. Cac ten
+# du phong o cuoi danh sach giu lai phong khi DNSE sau nay tu cung cap
+# ratios (hien DNSE chi la PriceProvider, chua co FundamentalProvider).
 _RATIO_COLUMN_MAP: dict[str, list[str]] = {
-    "pe": ["pe", "P/E", "priceToEarning"],
-    "pb": ["pb", "P/B", "priceToBook"],
-    "eps": ["eps", "earningPerShare"],
+    "pe": ["pe_ratio", "pe", "P/E", "priceToEarning"],
+    "pb": ["pb_ratio", "pb", "P/B", "priceToBook"],
+    "eps": ["trailing_eps", "eps", "earningPerShare"],
     "roe": ["roe", "ROE", "roe_percent"],
     "roa": ["roa", "ROA", "roa_percent"],
-    "net_margin": ["netProfitMargin", "net_margin", "postTaxMargin"],
-    "debt_to_equity": ["debtOnEquity", "debt_to_equity", "de_ratio"],
-    "dividend_yield": ["dividendYield", "dividend_yield"],
+    "net_margin": ["net_margin", "netProfitMargin", "postTaxMargin"],
+    "debt_to_equity": ["debt_to_equity", "debtOnEquity", "de_ratio"],
+    "dividend_yield": ["dividend_yield", "dividendYield"],
 }
-_MAX_PEERS_FOR_MEDIAN = 6
+# vnstock (Vietcap, tier Guest) gioi han 20 request/phut. Moi peer ton 4
+# request (income/balance/cashflow/ratios qua router.financials()), nen giu
+# so peer nho de mot lan /tracuu khong tu vuot gioi han ngay o lan goi dau
+# (truoc khi cache 24h phat huy tac dung).
+_MAX_PEERS_FOR_MEDIAN = 3
 
 
 @dataclass

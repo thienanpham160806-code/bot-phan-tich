@@ -159,18 +159,26 @@ def risk_keywords(text: str, dictionary: dict | None = None) -> list[Hit]:
 
 
 # ------------------------------------------------------------------- xu huong
-# TODO: ten cot la DU DOAN hop ly dua tren quy uoc dat ten pho bien cua
-# vnstock/DNSE, CAN xac nhan khi co du lieu that (chua co API key). Chinh lai
-# cac candidates nay ngay khi co ket qua goi financials() dau tien.
+# Ten cot (item_id) DA XAC NHAN tren vnstock 4.0.8 thuc te (Fundamental().
+# equity(symbol=...).income_statement()/.balance_sheet()/.cash_flow()) - xem
+# data/vietcap.py. "equity" khong co item_id chung duy nhat giua cac cong ty
+# (du lieu ke toan Viet Nam khong dong nhat) nen giu nhieu candidate.
 _TREND_COLUMNS: dict[str, list[str]] = {
-    "revenue": ["revenue", "netRevenue", "saleRevenue", "netSale"],
-    "net_income": ["netIncome", "postTaxProfit", "profitAfterTax", "netProfit"],
-    "gross_profit": ["grossProfit"],
-    "total_assets": ["totalAssets", "asset"],
-    "equity": ["equity", "ownerEquity", "totalEquity"],
+    "revenue": ["revenue", "net_sales", "netRevenue", "saleRevenue"],
+    "net_income": ["net_profit", "netIncome", "profitAfterTax"],
+    "gross_profit": ["gross_profit", "grossProfit"],
+    "total_assets": ["total_assets", "totalAssets"],
+    # "equity": ten item_id thuc te THAY DOI theo nganh (vd cong ty thuong
+    # thuong la "owners_equity_2"/"owners_equity_3", cong ty chung khoan la
+    # "equity" don gian) - giu nhieu candidate.
+    "equity": ["equity", "owners_equity_2", "owners_equity_3", "owners_equity", "totalEquity"],
 }
-_CFO_COLUMNS = ["netCashFlowFromOperating", "cfo", "operatingCashFlow"]
-_YEAR_COLUMNS = ["year", "yearReport", "period"]
+# CFO cho cong ty chung khoan/ngan hang dung ten item_id rieng theo nganh
+# (vd VIX: "net_cash_flows_from_securities_trading_activities"), khong co
+# trong candidate chung o day - phu hop voi quy uoc da co trong du an (xem
+# Altman Z-score trong docs/cong-thuc.md cu: khong ap dung cho nhom nay).
+_CFO_COLUMNS = ["operating_cash_flow", "netCashFlowFromOperating", "cfo"]
+_YEAR_COLUMNS = ["period", "year", "yearReport"]
 _EARNINGS_QUALITY_THRESHOLD = 0.8
 
 

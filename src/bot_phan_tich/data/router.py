@@ -127,10 +127,14 @@ class DataRouter:
         key = f"fin/{symbol.upper()}/{period}"
         cached = cache.read_frame(key + "/income", max_age=self._ttl_fund)
         if cached is not None:
-            return {
-                part: cache.read_frame(f"{key}/{part}") or pd.DataFrame()
-                for part in ("income", "balance", "cashflow", "ratios")
-            }
+            result = {}
+            for part in ("income", "balance", "cashflow", "ratios"):
+                frame = cache.read_frame(f"{key}/{part}")
+                # LUU Y: "frame or pd.DataFrame()" se loi ("truth value cua
+                # DataFrame la ambiguous") vi DataFrame khong ho tro bool() -
+                # phai kiem tra "is None" tuong minh.
+                result[part] = frame if frame is not None else pd.DataFrame()
+            return result
 
         for name in self._fund_names:
             try:
