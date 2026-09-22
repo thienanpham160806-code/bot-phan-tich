@@ -7,6 +7,7 @@ mot ma khong ton tai hay mot loi mang.
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -162,9 +163,35 @@ async def run() -> None:
         log.warning("Khong the cai dat bot commands menu: %s", exc)
 
     log.info("Bot bat dau chay")
+
+    # Ho tro Health Check HTTP tren Render/Railway neu co bien PORT
+    port_str = os.getenv("PORT")
+    web_runner = None
+    if port_str:
+        try:
+            from aiohttp import web
+
+            app = web.Application()
+
+            async def _health_handler(_request: web.Request) -> web.Response:
+                return web.Response(text="Bot is running!")
+
+            app.router.add_get("/", _health_handler)
+            app.router.add_get("/healthz", _health_handler)
+
+            web_runner = web.AppRunner(app)
+            await web_runner.setup()
+            site = web.TCPSite(web_runner, "0.0.0.0", int(port_str))
+            await site.start()
+            log.info("Da khoi dong health check server tai port %s (Render/Cloud)", port_str)
+        except Exception as exc:
+            log.warning("Khong the khoi dong health check tren port %s: %s", port_str, exc)
+
     try:
         await dispatcher.start_polling(bot)
     finally:
+        if web_runner:
+            await web_runner.cleanup()
         scheduler.shutdown(wait=False)
         await bot.session.close()
 

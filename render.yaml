@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: bot-phan-tich
+    runtime: docker
+    plan: free
+    region: singapore
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
