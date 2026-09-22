@@ -20,7 +20,7 @@ router = Router(name="lookup")
 async def cmd_lookup(message: Message) -> None:
     symbol = parse_symbol(message)
     if not symbol:
-        await message.answer("Cú pháp: <code>/tracuu FPT</code>")
+        await message.answer("Cú pháp: <code>/info FPT</code> (hoặc <code>/tracuu FPT</code>)")
         return
 
     async def work() -> str:

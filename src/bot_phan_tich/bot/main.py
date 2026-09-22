@@ -13,7 +13,7 @@ from typing import Any
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import Message, TelegramObject
+from aiogram.types import BotCommand, Message, TelegramObject
 
 from ..alerts.eod import run_eod_scan
 from ..analysis.snapshot import build_snapshot, ensure_fresh_in_background
@@ -109,6 +109,25 @@ async def run() -> None:
     # khoi dong - /loc va /tinhieu tu bao "dang chuan bi du lieu" trong
     # luc nay (xem analysis/snapshot.py:is_build_in_progress()).
     asyncio.create_task(ensure_fresh_in_background())
+
+    try:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="kn", description="Khuyến nghị & kế hoạch giá (VD: /kn FPT)"),
+                BotCommand(command="chart", description="Biểu đồ nến kỹ thuật (VD: /chart SSI)"),
+                BotCommand(command="info", description="Hồ sơ & định giá P/E, P/B (VD: /info VNM)"),
+                BotCommand(command="fin", description="Đọc BCTC & rủi ro nợ vay (VD: /fin HPG)"),
+                BotCommand(command="loc", description="Bộ lọc cổ phiếu toàn sàn (Breakout, Nền)"),
+                BotCommand(command="tinhieu", description="Tín hiệu MUA / BÁN phiên gần nhất"),
+                BotCommand(command="market", description="Trạng thái chỉ số thị trường VN-Index"),
+                BotCommand(command="sub", description="Thêm vào danh mục theo dõi (VD: /sub FPT)"),
+                BotCommand(command="watchlist", description="Xem danh sách cổ phiếu theo dõi"),
+                BotCommand(command="canhbao", description="Bật/tắt cảnh báo tự động cuối phiên"),
+                BotCommand(command="help", description="Hướng dẫn sử dụng chi tiết"),
+            ]
+        )
+    except Exception as exc:
+        log.warning("Khong the cai dat bot commands menu: %s", exc)
 
     log.info("Bot bat dau chay")
     try:

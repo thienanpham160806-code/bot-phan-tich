@@ -17,23 +17,60 @@ from ..keyboards import main_menu
 log = get_logger(__name__)
 router = Router(name="common")
 
-HELP_TEXT = """<b>Bot phân tích kỹ thuật chứng khoán Việt Nam</b>
+HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b>
+<i>Chiến lược: Hợp lưu ba hệ chỉ báo MACD, RSI thích ứng & Ichimoku Kinko Hyo.</i>
 
-Chiến lược: hợp lưu ba hệ chỉ báo MACD, RSI, Ichimoku Kinko Hyo.
+━━━━━━━━━━━━━━━━━━━━━
+🎯 <b>1. NHU CẦU: PHÂN TÍCH 1 CỔ PHIẾU CỤ THỂ</b>
+<i>(Gõ lệnh kèm mã cổ phiếu bạn đang quan tâm hoặc nắm giữ)</i>
 
-<b>Lệnh có sẵn</b>
-/tracuu MA (/info) — hồ sơ + chỉ số chính + cập nhật gần đây
-/khuyennghi MA (/rec, /kn) — khuyến nghị mua/bán, điểm ba hệ, giá vào/cắt lỗ/mục tiêu
-/bieudo MA (/chart) — biểu đồ nến kèm mây Ichimoku, MACD, RSI
-/loc (/screen) — lọc cổ phiếu, có nút bấm cho ba bộ lọc dựng sẵn
-/tinhieu (/signals) — tín hiệu MUA/TÍCH LUỸ và BÁN/GIẢM TỶ TRỌNG của phiên gần nhất
-/bctc MA (/fin) — bình luận tình hình tài chính (gửi kèm PDF BCTC nếu có)
-/theodoi MA (/sub) — thêm vào danh sách theo dõi
-/bosach MA (/unsub) — bỏ theo dõi
-/danhsach (/watchlist) — xem danh sách theo dõi kèm khuyến nghị hiện tại
-/canhbao (/alerts) — bật/tắt cảnh báo tự động cuối phiên
-/market — trạng thái chỉ số tham chiếu (VNINDEX)
-/help (/start) — hướng dẫn này
+• <code>/kn &lt;mã&gt;</code> — <b>Khuyến nghị & Kế hoạch giao dịch</b>
+  ➔ Vùng mua an toàn, cắt lỗ (% rủi ro), mục tiêu (% kỳ vọng), tỷ lệ R:R và 3 chỉ báo.
+  <i>Ví dụ: <code>/kn FPT</code> hoặc <code>/kn MBB</code></i>
+
+• <code>/chart &lt;mã&gt;</code> — <b>Biểu đồ kỹ thuật nến Nhật</b>
+  ➔ Biểu đồ nến trực quan tích hợp mây Ichimoku, MACD và RSI.
+  <i>Ví dụ: <code>/chart SSI</code></i>
+
+• <code>/info &lt;mã&gt;</code> — <b>Hồ sơ doanh nghiệp & Định giá</b>
+  ➔ Chỉ số P/E, P/B, ROE, ngành nghề, vốn hoá và tin tức công bố thông tin.
+  <i>Ví dụ: <code>/info VNM</code></i>
+
+• <code>/fin &lt;mã&gt;</code> — <b>Báo cáo tài chính & Sức khỏe nợ vay</b>
+  ➔ Bóc tách cơ cấu nợ, dòng tiền và cảnh báo rủi ro thuyết minh (có thể đính kèm PDF).
+  <i>Ví dụ: <code>/fin HPG</code></i>
+
+━━━━━━━━━━━━━━━━━━━━━
+🔍 <b>2. NHU CẦU: TÌM CƠ HỘI ĐẦU TƯ TOÀN SÀN</b>
+<i>(Quét toàn bộ thị trường, không cần nhập mã cụ thể)</i>
+
+• <code>/loc</code> — <b>Bộ lọc cổ phiếu thông minh</b>
+  ➔ Bấm 1 trong 3 nút chiến lược dựng sẵn:
+     🚀 <b>Đột phá:</b> Vượt mây Kumo + MACD cắt lên + Von nổ
+     📦 <b>Tích luỹ:</b> Nén nền chặt + RSI an toàn + Von cạn kiệt
+     ⚠️ <b>Cảnh báo:</b> Thủng mây hoặc Phân kỳ âm
+  ➔ Hoặc gõ điều kiện tuỳ biến:
+     <code>/loc san=HOSE kn=MUA</code> (Lọc mã MUA trên sàn HOSE)
+     <code>/loc may=tren kl=1.2</code> (Mã nằm trên mây, khối lượng tăng)
+
+• <code>/tinhieu</code> — <b>Tín hiệu MUA / BÁN trong ngày</b>
+  ➔ Danh sách cổ phiếu xuất hiện tín hiệu MUA/TÍCH LUỸ hoặc BÁN ở phiên gần nhất.
+
+• <code>/market</code> — <b>Xu hướng thị trường chung (VN-Index)</b>
+  ➔ Đánh giá sức mạnh thị trường để quyết định giải ngân hay giữ tiền.
+
+━━━━━━━━━━━━━━━━━━━━━
+⭐ <b>3. NHU CẦU: QUẢN LÝ DANH MỤC & CẢNH BÁO</b>
+<i>(Lưu danh mục cá nhân để bot theo dõi hộ bạn mỗi ngày)</i>
+
+• <code>/sub &lt;mã&gt;</code> — Thêm mã vào danh mục theo dõi (VD: <code>/sub FPT</code>)
+• <code>/watchlist</code> — Xem lại danh mục theo dõi kèm khuyến nghị hôm nay
+• <code>/unsub &lt;mã&gt;</code> — Bỏ theo dõi một mã (VD: <code>/unsub FPT</code>)
+• <code>/canhbao</code> — Bật/Tắt thông báo tự động cuối phiên (15:05 mỗi ngày)
+
+━━━━━━━━━━━━━━━━━━━━━
+💡 <i>Mẹo: Bạn có thể chạm nhanh vào các lệnh có khung màu xám (code) ở trên để copy vào ô chat!</i>
+<i>(Hỗ trợ cả lệnh cũ: /khuyennghi, /bieudo, /tracuu, /bctc, /theodoi, /danhsach...)</i>
 
 <i>Sản phẩm học thuật. Không phải khuyến nghị đầu tư.</i>"""
 

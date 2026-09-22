@@ -83,7 +83,10 @@ def _build_commentary(symbol: str, pdf_path: Path | None) -> str:
 async def cmd_finreport(message: Message, bot: Bot) -> None:
     symbol = parse_symbol(message)
     if not symbol:
-        await message.answer("Cú pháp: <code>/bctc FPT</code> (có thể gửi kèm file PDF BCTC).")
+        await message.answer(
+            "Cú pháp: <code>/fin FPT</code> (hoặc <code>/bctc FPT</code>, "
+            "có thể gửi kèm file PDF BCTC)."
+        )
         return
 
     pdf_path = await _save_uploaded_pdf(message, bot, symbol) or _find_local_pdf(symbol)
