@@ -21,7 +21,7 @@ import pandas as pd
 
 from ..config import get_settings
 from ..logging_conf import get_logger
-from . import cache
+from . import cache, market_store
 from .base import FundamentalProvider, PriceProvider, ProviderError
 from .cleaner import clean_ohlcv
 
@@ -68,6 +68,14 @@ class DataRouter:
         end = end or date.today()
         start = start or (end - timedelta(days=365 * 3))
         key = f"ohlcv/{symbol.upper()}/{resolution}"
+
+        # Kho toan san (data/market_store.py) la nguon UU TIEN NHAT: doc mot
+        # file tren dia, khong goi mang. Chi ap dung cho nen "1D" (kho chi
+        # chua du lieu ngay) va khi khong ep lam moi. Xem scripts/backfill_data.py.
+        if not force_refresh and resolution == "1D":
+            stored = market_store.load_ohlcv([symbol])
+            if not stored.empty:
+                return _slice(stored, start, end)
 
         if not force_refresh:
             cached = cache.read_frame(key, max_age=self._ttl_daily)

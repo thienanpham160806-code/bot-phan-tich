@@ -1,64 +1,91 @@
-"""Tai lich su gia va bao cao tai chinh vao cache cuc bo.
+"""Nap gia TOAN SAN vao kho mot file (data/market_store.py).
 
-Chay mot lan truoc khi backtest de khong phai goi mang trong vong lap.
+Mac dinh tai TOAN BO co phieu HOSE/HNX/UPCOM (khong con can co --full-universe
+nhu truoc). Dung `--watchlist-only` khi dang phat trien, muon chay nhanh voi
+vai ma trong config/universe.yaml.
 
-    python scripts/backfill_data.py --years 3
-    python scripts/backfill_data.py --years 3 --full-universe
+Lan dau (chua co kho): tai `countBack=750` (~3 nam) cho MOI ma.
+Cac lan sau (da co kho): CHI tai `countBack=10` (du bu vai phien nghi/loi
+mang) roi gop vao kho cu, khu trung theo (symbol, time) - nhanh hon nhieu vi
+khong phai tai lai het lich su moi lan.
+
+Nguon: endpoint cong khai cua bang gia Vietcap (data/vietcap.py:
+fetch_all_symbols/fetch_ohlcv_bulk), khong can API key.
+
+Cach chay:
+    python scripts/backfill_data.py                  # toan san, tang dan neu da co kho
+    python scripts/backfill_data.py --full            # ep tai lai tu dau (750 phien)
+    python scripts/backfill_data.py --watchlist-only  # chi 12 ma trong universe.yaml, phat trien
 """
 from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, timedelta
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from bot_phan_tich.config import get_universe_config  # noqa: E402
-from bot_phan_tich.data.router import get_router  # noqa: E402
+from bot_phan_tich.config import get_settings, get_universe_config  # noqa: E402
+from bot_phan_tich.data import market_store  # noqa: E402
+from bot_phan_tich.data.vietcap import fetch_all_symbols, fetch_ohlcv_bulk  # noqa: E402
 from bot_phan_tich.logging_conf import get_logger, setup_logging  # noqa: E402
 
 log = get_logger("backfill")
 
+_FIRST_RUN_BARS = 750  # ~3 nam
+_INCREMENTAL_BARS = 10  # du bu vai phien nghi/loi mang giua 2 lan chay
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--years", type=int, default=3)
-    parser.add_argument("--full-universe", action="store_true",
-                        help="Tai toan san thay vi chi watchlist")
-    parser.add_argument("--skip-financials", action="store_true")
+    parser.add_argument("--full", action="store_true", help="Ep tai lai tu dau (bo qua kho cu)")
+    parser.add_argument(
+        "--watchlist-only", action="store_true",
+        help="Chi tai vai ma trong config/universe.yaml (phat trien, chay nhanh)",
+    )
     args = parser.parse_args()
 
     setup_logging()
-    data = get_router()
-    config = get_universe_config()
+    settings = get_settings()
+    started = time.time()
 
-    end = date.today()
-    start = end - timedelta(days=365 * args.years + 60)
-
-    if args.full_universe:
-        from bot_phan_tich.data.universe import liquid_universe
-
-        symbols = liquid_universe(end)
-    else:
+    if args.watchlist_only:
+        config = get_universe_config()
         symbols = [s.upper() for s in config["watchlist"]]
+        exchanges_frame = None
+        log.info("Che do watchlist-only: %d ma", len(symbols))
+    else:
+        exchanges = settings.get("universe.exchanges", ["HOSE", "HNX", "UPCOM"])
+        log.info("Lay danh sach ma toan san (%s)...", ", ".join(exchanges))
+        exchanges_frame = fetch_all_symbols(exchanges)
+        symbols = exchanges_frame["symbol"].tolist()
+        market_store.save_symbols(exchanges_frame)
+        log.info("Da luu danh sach %d ma vao %s", len(exchanges_frame), market_store.symbols_path())
 
-    symbols = list(dict.fromkeys(symbols + [config.get("benchmark", "VNINDEX")]))
-    log.info("Bat dau tai %d ma tu %s den %s", len(symbols), start, end)
+    existing = market_store.last_updated()
+    is_first_run = args.full or existing is None
+    count_back = _FIRST_RUN_BARS if is_first_run else _INCREMENTAL_BARS
+    log.info(
+        "%s: countBack=%d cho %d ma",
+        "Tai lan dau" if is_first_run else "Cap nhat tang dan", count_back, len(symbols),
+    )
 
-    ok = failed = 0
-    for i, symbol in enumerate(symbols, start=1):
-        try:
-            frame = data.ohlcv(symbol, start, end, force_refresh=True)
-            log.info("[%d/%d] %s: %d phien", i, len(symbols), symbol, len(frame))
-            if not args.skip_financials and symbol != config.get("benchmark"):
-                data.financials(symbol, "quarter")
-            ok += 1
-        except Exception as exc:
-            log.warning("[%d/%d] %s that bai: %s", i, len(symbols), symbol, exc)
-            failed += 1
+    frame = fetch_ohlcv_bulk(symbols, count_back=count_back)
+    fetched_symbols = frame["symbol"].nunique() if not frame.empty else 0
+    failed = len(symbols) - fetched_symbols
 
-    log.info("Hoan tat: %d thanh cong, %d that bai", ok, failed)
+    total_rows = market_store.save_ohlcv(frame, merge=not is_first_run)
+
+    elapsed = time.time() - started
+    log.info(
+        "Hoan tat trong %.1fs: %d/%d ma co du lieu (%d that bai), kho hien co %d dong",
+        elapsed, fetched_symbols, len(symbols), failed, total_rows,
+    )
+    print(
+        f"\nXong: {fetched_symbols}/{len(symbols)} ma, {total_rows:,} dong trong kho, "
+        f"{elapsed:.1f}s. Kho: {market_store.ohlcv_path()}"
+    )
 
 
 if __name__ == "__main__":
