@@ -7,12 +7,14 @@ pyarrow>=16.0
 tenacity>=8.2
 
 # --- nguồn dữ liệu ---
-# `pip install openapi-sdk` (SDK chính thức của DNSE) KHÔNG cài được — package
-# chưa publish thật lên PyPI (đã xác nhận 21/09/2026), dù docs của DNSE nói vậy.
-# Repo Git cũng không có setup.py/pyproject.toml. Giải pháp tạm: vendor cục bộ
-# tại vendor/dnse-sdk/ — cài bằng `pip install -e vendor/dnse-sdk` (không nằm
-# trong file requirements.txt vì đây là đường dẫn cục bộ, không phải PyPI).
-# Các dòng dưới là dependency THẬT của SDK đó (xem vendor/dnse-sdk/pyproject.toml):
+# SDK chính thức của DNSE: tên gói PyPI thật là "dnse-sdk-openapi" (đã xác nhận
+# trên PyPI 22/09/2026) — KHÔNG phải "openapi-sdk" như docs của DNSE ghi nhầm.
+# Import trong code vẫn là `from dnse import DNSEClient` (xem data/dnse.py).
+dnse-sdk-openapi>=2.3
+# Gói trên KHÔNG tự khai báo dependency (METADATA rỗng), nhưng dnse/__init__.py
+# import TradingClient (module websocket) ngay khi import cả gói — nên vẫn cần
+# cài thủ công 4 dòng dưới (dnse/websocket/*.py cần chúng), dù bot chỉ dùng
+# DNSEClient (REST), không dùng TradingClient (WebSocket):
 urllib3>=2.0
 certifi
 websockets>=12.0

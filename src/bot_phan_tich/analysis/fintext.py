@@ -15,6 +15,7 @@ de) -> audit_opinion + risk_keywords (doc tren toan van ban hoac tung phan)
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,7 +92,25 @@ _OPINION_PRIORITY = ["trái ngược", "từ chối", "ngoại trừ", "chấp n
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text.lower()).strip()
+    """Ha thuong + gop khoang trang + BO DAU TIENG VIET - chi dung de SO KHOP.
+
+    Van ban trich tu PDF BCTC doi khi MAT DAU (font nhung/encoding loi khi
+    pdfplumber trich xuat - da gap thuc te), trong khi tu dien trong file nay
+    (_AUDIT_OPINIONS, config/risk_keywords.yaml) LUON co dau day du. Neu chi
+    ha thuong ma khong bo dau, van ban mat dau se khong khop duoc voi tu dien
+    -> audit_opinion()/risk_keywords() lang le tra ve khong tim thay gi, du
+    van ban THUC SU co noi dung lien quan. Bo dau ca hai chieu (van ban lan
+    tu dien) giai quyet tron ca 2 truong hop: van ban co dau lan mat dau.
+
+    LUU Y: KHONG dung ket qua ham nay de HIEN THI - "audit_opinion" tra ve
+    `evidence` tu tu dien goc (co dau), "risk_keywords" tra ve `Hit.sentence`
+    tu van ban goc (giu nguyen, co dau hay khong tuy PDF) - ca hai deu KHONG
+    bi ghi de boi ban da bo dau nay.
+    """
+    text = text.replace("đ", "d").replace("Đ", "D")  # "đ" khong tach duoc qua NFD
+    decomposed = unicodedata.normalize("NFD", text)
+    stripped = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", stripped.lower()).strip()
 
 
 def audit_opinion(text: str) -> dict:

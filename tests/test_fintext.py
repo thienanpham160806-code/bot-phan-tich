@@ -38,6 +38,26 @@ def test_audit_opinion_none_when_no_match():
     assert result["opinion"] is None
 
 
+def test_audit_opinion_matches_diacritics_stripped_text():
+    """PDF trich xuat doi khi MAT DAU (loi font/encoding) - audit_opinion() phai
+    van nhan dien duoc, va evidence tra ve VAN CO DAU (tu tu dien goc, khong
+    phai ban da bo dau dung de so khop noi bo)."""
+    text = "Theo y kien cua chung toi, bao cao tai chinh da trinh bay trung thuc va hop ly."
+    result = audit_opinion(text)
+    assert result["opinion"] == "chấp nhận toàn phần"
+    assert result["evidence"] == "trình bày trung thực và hợp lý"
+
+
+def test_audit_opinion_matches_diacritics_stripped_text_containing_d_with_hook():
+    """Rieng truong hop nay con kiem tra ky tu 'd' (khong dau) khop duoc voi
+    'đ' (co dau) trong "từ chối đưa ra ý kiến" - "đ" KHONG tach duoc bang NFD
+    thong thuong nhu cac nguyen am co dau khac (no la mot chu cai rieng trong
+    khoi Latin Extended-A, khong phai "d" + dau ket hop), can xu ly rieng."""
+    text = "Chung toi tu choi dua ra y kien do khong thu thap duoc day du bang chung."
+    result = audit_opinion(text)
+    assert result["opinion"] == "từ chối"
+
+
 def test_risk_keywords_detects_going_concern_group():
     text = (
         "Ban Tổng Giám đốc cho biết có nghi ngờ đáng kể về khả năng hoạt động "
@@ -58,6 +78,21 @@ def test_risk_keywords_detects_multiple_groups_in_one_paragraph():
     groups = {h.group for h in hits}
     assert "no_va_thanh_khoan" in groups
     assert "phap_ly" in groups
+
+
+def test_risk_keywords_matches_diacritics_stripped_text():
+    """PDF trich xuat mat dau - risk_keywords() phai van nhan dien duoc tu
+    khoa, va Hit.sentence tra ve la CAU GOC (mat dau, dung nhu van ban dau
+    vao) - khong bi "sua lai" thanh ban co dau gia tao."""
+    text = (
+        "Ban Tong Giam doc cho biet co nghi ngo dang ke ve kha nang hoat dong "
+        "lien tuc cua Cong ty do lo luy ke lon tinh den cuoi nam."
+    )
+    hits = risk_keywords(text)
+    groups = {h.group for h in hits}
+    assert "hoat_dong_lien_tuc" in groups
+    # sentence tra ve dung ban goc (mat dau) - khong bi thay the boi ban co dau
+    assert any("nghi ngo dang ke" in h.sentence for h in hits)
 
 
 def test_risk_keywords_empty_when_no_keyword_present():

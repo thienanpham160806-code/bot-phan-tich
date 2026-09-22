@@ -57,7 +57,6 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
-pip install -e vendor/dnse-sdk   # SDK DNSE (vendor cuc bo, xem muc 6 & vendor/dnse-sdk/README.md)
 cp .env.example .env   # Windows: copy .env.example .env
 ```
 
@@ -72,10 +71,10 @@ Mở `.env` và điền:
 > **Không bao giờ** commit file `.env`. File này đã nằm trong `.gitignore`
 > (chỉ `.env.example` — bản mẫu rỗng — mới được commit).
 >
-> `pip install openapi-sdk` (SDK chính thức của DNSE) **không cài được** —
-> package chưa publish thật lên PyPI. Cài bằng bản vendor cục bộ:
-> `pip install -e vendor/dnse-sdk` (xem `vendor/dnse-sdk/README.md`). Chưa
-> có `DNSE_API_KEY`/`DNSE_API_SECRET` hoặc chưa cài SDK cũng không sao —
+> `pip install openapi-sdk` (theo docs của DNSE) **không cài được** — tên gói
+> đó chỉ là ví dụ trong docs, không phải tên thật trên PyPI. Tên gói PyPI
+> thật là `dnse-sdk-openapi` (đã có sẵn trong `requirements.txt`, không cần
+> cài riêng). Chưa có `DNSE_API_KEY`/`DNSE_API_SECRET` cũng không sao —
 > `data/router.py` tự động dùng nguồn dự phòng (Vietcap/VCI qua `vnstock`,
 > không cần API key) nên bot vẫn chạy được đầy đủ phần dữ liệu cuối phiên.
 
