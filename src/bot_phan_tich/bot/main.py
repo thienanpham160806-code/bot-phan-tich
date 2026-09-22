@@ -64,8 +64,15 @@ async def daily_scan_job(bot: Bot) -> None:
     loop cua bot trong luc chay, neu khong bot se "dung hinh" ca budi.
     """
     try:
-        updated_rows = await asyncio.to_thread(market_store.refresh)
-        log.info("daily_scan_job: market_store.refresh() -> %d dong", updated_rows)
+        # Kho co the da bi xoa trang giua chung (vd container Render goi
+        # Free spin-down roi wake lai, mat het /data) - refresh() tren kho
+        # rong khong lam gi ca, phai bootstrap() lai tu dau (xem market_store.py).
+        if await asyncio.to_thread(lambda: market_store.load_ohlcv().empty):
+            updated_rows = await asyncio.to_thread(market_store.bootstrap)
+            log.info("daily_scan_job: market_store.bootstrap() -> %d dong", updated_rows)
+        else:
+            updated_rows = await asyncio.to_thread(market_store.refresh)
+            log.info("daily_scan_job: market_store.refresh() -> %d dong", updated_rows)
         snapshot_frame = await asyncio.to_thread(build_snapshot)
         log.info("daily_scan_job: build_snapshot() -> %d ma", len(snapshot_frame))
     except Exception:

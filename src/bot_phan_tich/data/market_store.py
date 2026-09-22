@@ -133,8 +133,11 @@ def refresh(count_back: int = 10) -> int:
 
     Dung cho lich chay hang ngay (xem bot/scheduler.py, bot/main.py:
     daily_scan_job) - NGAN va nhanh hon nhieu so voi backfill lan dau. Neu
-    kho chua co gi (chua chay scripts/backfill_data.py lan nao), khong lam
-    gi ca va tra ve 0 - khong tu bia danh sach ma.
+    kho chua co gi (chua chay scripts/backfill_data.py lan nao, hoac dia bi
+    xoa trang - vd Render goi Free KHONG co dia luu ben vung, moi lan
+    container khoi dong lai la kho lai rong), khong lam gi ca va tra ve 0 -
+    goi noi (vd ensure_fresh_in_background()) tu quyet dinh co goi
+    bootstrap() thay the hay khong.
     """
     existing = load_ohlcv()
     if existing.empty:
@@ -148,3 +151,36 @@ def refresh(count_back: int = 10) -> int:
     symbols = sorted(existing["symbol"].unique().tolist())
     frame = fetch_ohlcv_bulk(symbols, count_back=count_back)
     return save_ohlcv(frame, merge=True)
+
+
+def bootstrap(exchanges: list[str] | None = None, count_back: int = 750) -> int:
+    """Nap TOAN BO lich su gia cho CA SAN (giong scripts/backfill_data.py
+    lan dau), dung khi kho HOAN TOAN RONG - vd container vua khoi dong tren
+    moi truong khong co dia luu ben vung (Render goi Free: /data bi xoa
+    trang moi lan container restart/spin-down-wake, khac voi may ca nhan).
+
+    KHAC voi refresh(): refresh() chi tai bu vai phien cho ma DA CO san -
+    tren kho rong no khong lam gi ca (dung y, tranh tu bia danh sach ma).
+    bootstrap() moi thuc su tai danh sach ma + lich su day du tu dau.
+
+    Cham hon refresh() nhieu (~2-3 phut cho toan san, do thuc te 1.523 ma/
+    123s) - chi nen goi MOT LAN moi khi phat hien kho rong, khong goi lap
+    lai moi vong quet dinh ky (xem analysis/snapshot.py:ensure_fresh_in_background()).
+    """
+    from ..config import get_settings
+    from .vietcap import fetch_all_symbols, fetch_ohlcv_bulk  # tranh import vong
+
+    exchanges = exchanges or get_settings().get(
+        "universe.exchanges", ["HOSE", "HNX", "UPCOM"]
+    )
+    symbols_frame = fetch_all_symbols(exchanges)
+    if symbols_frame.empty:
+        log.warning("market_store.bootstrap(): khong lay duoc danh sach ma, bo qua")
+        return 0
+    save_symbols(symbols_frame)
+
+    symbols = symbols_frame["symbol"].tolist()
+    frame = fetch_ohlcv_bulk(symbols, count_back=count_back)
+    total = save_ohlcv(frame, merge=False)
+    log.info("market_store.bootstrap(): %d ma, %d dong", len(symbols), total)
+    return total

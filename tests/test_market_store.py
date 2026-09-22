@@ -92,3 +92,52 @@ def test_save_and_load_symbols(isolated_store):
     market_store.save_symbols(frame)
     loaded = market_store.load_symbols()
     assert list(loaded["symbol"]) == ["FPT", "VNM"]
+
+
+# --------------------------------------------------------------- bootstrap()
+def test_bootstrap_fetches_full_history_on_empty_store(isolated_store, monkeypatch):
+    """bootstrap() phai nap DAY DU (khac refresh(), vo hai tren kho rong) -
+    dung khi container khoi dong tren moi truong khong co dia luu ben vung
+    (vd Render goi Free) va data/ bi xoa trang."""
+    from bot_phan_tich.data import vietcap as vietcap_mod
+
+    symbols_frame = pd.DataFrame({"symbol": ["FPT", "VNM"], "exchange": ["HOSE", "HOSE"]})
+    ohlcv_frame = _frame(
+        [
+            ["fpt", "2024-01-01", 10, 11, 9, 10.5, 1000],
+            ["vnm", "2024-01-01", 50, 51, 49, 50.5, 500],
+        ]
+    )
+    calls = {}
+
+    def fake_fetch_all_symbols(exchanges):
+        calls["exchanges"] = exchanges
+        return symbols_frame
+
+    def fake_fetch_ohlcv_bulk(symbols, count_back):
+        calls["symbols"] = symbols
+        calls["count_back"] = count_back
+        return ohlcv_frame
+
+    monkeypatch.setattr(vietcap_mod, "fetch_all_symbols", fake_fetch_all_symbols)
+    monkeypatch.setattr(vietcap_mod, "fetch_ohlcv_bulk", fake_fetch_ohlcv_bulk)
+
+    total = market_store.bootstrap(exchanges=["HOSE"], count_back=750)
+
+    assert total == 2
+    assert calls["exchanges"] == ["HOSE"]
+    assert set(calls["symbols"]) == {"FPT", "VNM"}
+    assert calls["count_back"] == 750
+    assert set(market_store.load_ohlcv()["symbol"]) == {"FPT", "VNM"}
+    assert list(market_store.load_symbols()["symbol"]) == ["FPT", "VNM"]
+
+
+def test_bootstrap_returns_zero_when_symbol_list_empty(isolated_store, monkeypatch):
+    from bot_phan_tich.data import vietcap as vietcap_mod
+
+    monkeypatch.setattr(vietcap_mod, "fetch_all_symbols", lambda exchanges: pd.DataFrame())
+
+    total = market_store.bootstrap()
+
+    assert total == 0
+    assert market_store.load_ohlcv().empty

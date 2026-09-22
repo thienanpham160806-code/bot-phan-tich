@@ -203,11 +203,18 @@ def is_build_in_progress() -> bool:
 
 
 async def ensure_fresh_in_background() -> None:
-    """Neu snapshot thieu hoac cu hon phien gan nhat: cap nhat kho
-    (data/market_store.py:refresh()) roi dung lai snapshot, CHAY O NEN
-    (asyncio.to_thread) - KHONG chan bot luc khoi dong. Goi tu bot/main.py
-    nhu mot task nen (asyncio.create_task), khong await truc tiep trong luong
-    khoi dong chinh.
+    """Neu snapshot thieu hoac cu hon phien gan nhat: cap nhat kho roi dung
+    lai snapshot, CHAY O NEN (asyncio.to_thread) - KHONG chan bot luc khoi
+    dong. Goi tu bot/main.py nhu mot task nen (asyncio.create_task), khong
+    await truc tiep trong luong khoi dong chinh.
+
+    Kho HOAN TOAN RONG (vd container Render goi Free khong co dia luu ben
+    vung, moi lan restart la mat sach data/) can market_store.bootstrap()
+    (nap toan bo, ~2-3 phut) thay vi refresh() (chi tai bu cho ma DA CO,
+    tren kho rong se khong lam gi ca - xem market_store.py). Neu khong phan
+    biet hai truong hop nay, bot deploy tren moi truong dia tam se MAI MAI
+    khong co du lieu toan san (/loc, /tinhieu luon "dang chuan bi du lieu",
+    /khuyennghi cho mot ma bat ky phai goi mang truc tiep moi lan - CHAM).
     """
     global _build_in_progress
     if not is_stale():
@@ -218,8 +225,16 @@ async def ensure_fresh_in_background() -> None:
     _build_in_progress = True
     log.info("ensure_fresh_in_background: snapshot cu/thieu, dang cap nhat o nen...")
     try:
-        updated_rows = await asyncio.to_thread(market_store.refresh)
-        log.info("ensure_fresh_in_background: market_store.refresh() -> %d dong", updated_rows)
+        if market_store.load_ohlcv().empty:
+            updated_rows = await asyncio.to_thread(market_store.bootstrap)
+            log.info(
+                "ensure_fresh_in_background: market_store.bootstrap() -> %d dong", updated_rows
+            )
+        else:
+            updated_rows = await asyncio.to_thread(market_store.refresh)
+            log.info(
+                "ensure_fresh_in_background: market_store.refresh() -> %d dong", updated_rows
+            )
         frame = await asyncio.to_thread(build_snapshot)
         log.info("ensure_fresh_in_background: build_snapshot() -> %d ma", len(frame))
     except Exception:
