@@ -64,8 +64,15 @@ async def daily_scan_job(bot: Bot) -> None:
     loop cua bot trong luc chay, neu khong bot se "dung hinh" ca budi.
     """
     try:
-        updated_rows = await asyncio.to_thread(market_store.refresh)
-        log.info("daily_scan_job: market_store.refresh() -> %d dong", updated_rows)
+        # Kho co the da bi xoa trang giua chung (vd container Render goi
+        # Free spin-down roi wake lai, mat het /data) - refresh() tren kho
+        # rong khong lam gi ca, phai bootstrap() lai tu dau (xem market_store.py).
+        if await asyncio.to_thread(lambda: market_store.load_ohlcv().empty):
+            updated_rows = await asyncio.to_thread(market_store.bootstrap)
+            log.info("daily_scan_job: market_store.bootstrap() -> %d dong", updated_rows)
+        else:
+            updated_rows = await asyncio.to_thread(market_store.refresh)
+            log.info("daily_scan_job: market_store.refresh() -> %d dong", updated_rows)
         snapshot_frame = await asyncio.to_thread(build_snapshot)
         log.info("daily_scan_job: build_snapshot() -> %d ma", len(snapshot_frame))
     except Exception:
@@ -164,11 +171,15 @@ async def run() -> None:
 
     log.info("Bot bat dau chay")
 
-    # Chi dung khi deploy nhu MOT WEB SERVICE (vd Railway mac dinh, hoac neu
-    # lo cau hinh Render la "web" thay vi "worker" - xem README.md muc 7.3).
-    # render.yaml chinh thuc cua repo nay khai bao "type: worker" (Background
-    # Worker) - loai do KHONG bi Render quet port nen bien PORT se khong duoc
-    # dat va khoi nay tu bo qua, hoan toan vo hai.
+    # BAT BUOC khi deploy tren goi Free cua Render (render.yaml: type: web) -
+    # goi Free KHONG ho tro Background Worker ("service type is not
+    # available for this plan", da gap thuc te), nen phai deploy nhu Web
+    # Service va tu mo mot port gia de qua vong quet port cua Render. Neu
+    # sau nay nang cap len goi tra phi va doi sang type: worker, khoi nay tu
+    # vo hai (bien PORT se khong duoc dat, "if port_str" khong chay).
+    # Xem README.md muc 7.3 (gom ca cach giu bot khong bi Render "ngu" do
+    # goi Free spin-down sau ~15 phut khong co request HTTP - can UptimeRobot
+    # ping dinh ky vao /healthz).
     port_str = os.getenv("PORT")
     web_runner = None
     if port_str:
