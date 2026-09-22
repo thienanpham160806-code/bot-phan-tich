@@ -43,18 +43,46 @@ def percent(value: float | None) -> str:
 
 
 # --------------------------------------------------------------------- /market
-def market_card(symbol: str, close: float, change_pct: float, as_of) -> str:
-    """The trang thai thi truong don gian, dua tren chi so tham chieu (VNINDEX)."""
-    huong = "tăng" if change_pct >= 0 else "giảm"
-    return "\n".join(
+def market_card(
+    symbol: str,
+    close: float,
+    change_pct: float,
+    as_of,
+    change_pts: float | None = None,
+    high: float | None = None,
+    low: float | None = None,
+    volume: float | None = None,
+) -> str:
+    """The trang thai thi truong day du, truc quan cho chi so tham chieu (VNINDEX)."""
+    icon = "🟢" if change_pct > 0 else ("🔴" if change_pct < 0 else "🟡")
+    huong = "tăng" if change_pct > 0 else ("giảm" if change_pct < 0 else "đứng giá")
+
+    pts_str = f"{change_pts:+.2f} điểm / " if change_pts is not None else ""
+    lines = [
+        f"📊 <b>CHỈ SỐ THỊ TRƯỜNG: {escape(symbol)}</b>",
+        f"📅 <b>Phiên giao dịch:</b> <b>{as_of:%d/%m/%Y}</b>",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        "📈 <b>ĐIỂM SỐ & BIẾN ĐỘNG</b>",
+        (
+            f"• <b>Điểm đóng cửa:</b> <b>{price(close)}</b> "
+            f"({icon} {huong} {pts_str}{percent(change_pct)})"
+        ),
+    ]
+
+    if high is not None and low is not None and high > 0 and low > 0:
+        lines.append(f"• <b>Biên độ trong phiên:</b> {price(low)} – {price(high)}")
+
+    if volume is not None and volume > 0:
+        lines.append(f"• <b>Khối lượng giao dịch:</b> <b>{money(volume)}</b> CP")
+
+    lines.extend(
         [
-            f"<b>{escape(symbol)}</b> — {as_of:%d/%m/%Y}",
-            "",
-            f"Điểm: <b>{price(close)}</b> ({huong} {percent(change_pct)})",
             "",
             DISCLAIMER,
         ]
     )
+    return "\n".join(lines)
 
 
 # ------------------------------------------------------------------ /khuyennghi

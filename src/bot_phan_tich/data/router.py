@@ -14,7 +14,7 @@ cung lam vay.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 
 import pandas as pd
@@ -75,12 +75,30 @@ class DataRouter:
         if not force_refresh and resolution == "1D":
             stored = market_store.load_ohlcv([symbol])
             if not stored.empty:
-                return _slice(stored, start, end)
+                last_stored_date = pd.to_datetime(stored.iloc[-1]["time"]).date()
+                now_dt = datetime.now()
+                is_weekday = now_dt.weekday() < 5
+                is_after_close = (now_dt.hour > 15) or (now_dt.hour == 15 and now_dt.minute >= 15)
+                today = now_dt.date()
+                is_stale = (
+                    is_weekday and is_after_close and (end >= today) and (last_stored_date < today)
+                )
+                if not is_stale:
+                    return _slice(stored, start, end)
 
         if not force_refresh:
             cached = cache.read_frame(key, max_age=self._ttl_daily)
             if cached is not None and not cached.empty:
-                return _slice(cached, start, end)
+                last_cached_date = pd.to_datetime(cached.iloc[-1]["time"]).date()
+                now_dt = datetime.now()
+                is_weekday = now_dt.weekday() < 5
+                is_after_close = (now_dt.hour > 15) or (now_dt.hour == 15 and now_dt.minute >= 15)
+                today = now_dt.date()
+                is_stale = (
+                    is_weekday and is_after_close and (end >= today) and (last_cached_date < today)
+                )
+                if not is_stale:
+                    return _slice(cached, start, end)
 
         errors: list[str] = []
         for name in self._price_names:
@@ -231,7 +249,8 @@ class DataRouter:
 
 
 def _slice(frame: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
-    mask = (frame["time"] >= pd.Timestamp(start)) & (frame["time"] <= pd.Timestamp(end))
+    end_ts = pd.Timestamp(end) + pd.Timedelta(days=1)
+    mask = (frame["time"] >= pd.Timestamp(start)) & (frame["time"] < end_ts)
     return frame.loc[mask].reset_index(drop=True)
 
 

@@ -103,9 +103,19 @@ async def cmd_market(message: Message) -> None:
             return
         last = frame.iloc[-1]
         prev = frame.iloc[-2] if len(frame) > 1 else last
-        change_pct = (float(last["close"]) / float(prev["close"]) - 1) if prev["close"] else 0.0
+        change_pts = (float(last["close"]) - float(prev["close"])) if prev["close"] else 0.0
+        change_pct = (change_pts / float(prev["close"])) if prev["close"] else 0.0
         await message.answer(
-            market_card(benchmark, float(last["close"]), change_pct, last["time"].date())
+            market_card(
+                benchmark,
+                float(last["close"]),
+                change_pct,
+                last["time"].date(),
+                change_pts=change_pts,
+                high=float(last.get("high", 0)),
+                low=float(last.get("low", 0)),
+                volume=float(last.get("volume", 0)),
+            )
         )
     except Exception as exc:
         log.exception("Lenh /market that bai")
