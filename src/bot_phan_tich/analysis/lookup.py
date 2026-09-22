@@ -8,6 +8,7 @@ doi khong bia so.
 """
 from __future__ import annotations
 
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -48,6 +49,20 @@ class KeyMetric:
 
 
 @dataclass
+class CompanyNewsItem:
+    """Mot tin tuc / cong bo thong tin kem duong dan doc truc tiep tu bao chi."""
+
+    title: str
+    published_at: str | None = None
+    url: str | None = None
+    cafef_url: str | None = None
+
+    def __str__(self) -> str:
+        date_prefix = f"{self.published_at} — " if self.published_at else ""
+        return f"{date_prefix}{self.title}"
+
+
+@dataclass
 class CompanyProfile:
     """Ket qua /tracuu: ho so, chi so chinh, cap nhat gan day cho mot ma."""
 
@@ -75,7 +90,7 @@ class CompanyProfile:
 
     recent_events: list[str] = field(default_factory=list)
     latest_report_period: str | None = None
-    news: list[str] = field(default_factory=list)
+    news: list[CompanyNewsItem | str] = field(default_factory=list)
     data_notes: list[str] = field(default_factory=list)  # ghi lai phan nao thieu du lieu
 
 
@@ -147,9 +162,10 @@ def _fill_price_snapshot(profile: CompanyProfile, router: DataRouter) -> None:
         if prev["close"]:
             profile.change_pct = profile.price / float(prev["close"]) - 1
         if profile.shares_outstanding and profile.price:
-            # Gia OHLCV tu DNSE/Vietcap tinh bang NGHIN DONG/CP (vd 65.18
-            # nghia la 65,180 VND) - nhan 1000 de ra von hoa dung don vi VND.
-            profile.market_cap = profile.price * 1000 * profile.shares_outstanding
+            # Gia OHLCV tu DNSE/Vietcap co the la VND day du (vd 20400) hoac
+            # nghin dong/CP (vd 20.40) - kiem tra de quy ve dung VND.
+            price_vnd = profile.price if profile.price >= 1000 else profile.price * 1000
+            profile.market_cap = price_vnd * profile.shares_outstanding
     except Exception as exc:
         log.warning("lookup(%s): khong lay duoc gia: %s", profile.symbol, exc)
         profile.data_notes.append("Khong lay duoc gia gan nhat")
@@ -216,6 +232,28 @@ _NEWS_WINDOW_DAYS = 180  # 6 thang gan nhat
 _NEWS_MAX_ITEMS = 8
 
 
+def _build_news_links(symbol: str, title: str, raw_url: str | None = None) -> tuple[str, str]:
+    """Tao link dan toi bao/tap chi chinh thong (Google Search va CafeF)."""
+    if raw_url and raw_url.startswith("http"):
+        read_url = raw_url
+    else:
+        search_title = title.strip()
+        if not search_title.upper().startswith(symbol.upper()):
+            search_title = f"{symbol} {search_title}"
+        q = urllib.parse.quote_plus(search_title)
+        read_url = f"https://www.google.com/search?q={q}"
+
+    clean = title.strip()
+    for prefix in (f"{symbol}:", f"{symbol} -", f"{symbol} :", f"{symbol}"):
+        if clean.upper().startswith(prefix.upper()):
+            clean = clean[len(prefix) :].strip()
+            break
+    words = clean.split()[:7]
+    cafef_q = urllib.parse.quote_plus(f"{symbol} {' '.join(words)}")
+    cafef_url = f"https://cafef.vn/tim-kiem.chn?keywords={cafef_q}"
+    return read_url, cafef_url
+
+
 def _fill_recent_updates(profile: CompanyProfile, router: DataRouter) -> None:
     try:
         income = router.financials(profile.symbol, period="year").get("income")
@@ -238,7 +276,17 @@ def _fill_recent_updates(profile: CompanyProfile, router: DataRouter) -> None:
         for item in items[:_NEWS_MAX_ITEMS]:
             published = item.get("published_at")
             date_str = published.strftime("%d/%m/%Y") if pd.notna(published) else "?"
-            profile.news.append(f"{date_str} — {item['title']}")
+            title = str(item.get("title") or "").strip()
+            raw_url = item.get("url") or item.get("news_source_link")
+            read_url, cafef_url = _build_news_links(profile.symbol, title, raw_url)
+            profile.news.append(
+                CompanyNewsItem(
+                    title=title,
+                    published_at=date_str,
+                    url=read_url,
+                    cafef_url=cafef_url,
+                )
+            )
     else:
         profile.data_notes.append(
             f"Không tìm thấy công bố thông tin / tin tức nào trong {_NEWS_WINDOW_DAYS} ngày gần đây"

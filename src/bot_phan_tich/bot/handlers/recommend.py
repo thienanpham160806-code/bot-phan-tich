@@ -52,7 +52,7 @@ async def cmd_recommend(message: Message) -> None:
             log.exception("Lenh /khuyennghi that bai cho %s", symbol)
             return error_card(str(exc))
 
-    await run_with_notice(message, work)
+    await run_with_notice(message, work, reply_markup=symbol_actions(symbol))
 
 
 @router.message(Command("bieudo", "chart"))

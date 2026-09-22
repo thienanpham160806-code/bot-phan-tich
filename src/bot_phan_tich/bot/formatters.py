@@ -11,8 +11,10 @@ Quy tac bat buoc cho moi tin nhan (muc 11 cua ke hoach refactor):
 from __future__ import annotations
 
 import asyncio
+import urllib.parse
 from collections.abc import Awaitable, Callable
 from html import escape
+from typing import Any
 
 from aiogram.types import Message
 
@@ -257,13 +259,36 @@ def recommendation_card(rec) -> str:
 
 
 # --------------------------------------------------------------------- /tracuu
-def _metric_line(label: str, metric) -> str:
+def _format_ratio_line(
+    label: str,
+    metric,
+    unit: str = "",
+    is_percent: bool = False,
+    is_int: bool = False,
+    is_debt: bool = False,
+) -> str:
     if metric.value is None:
-        return f"{label}: không có dữ liệu"
-    text = f"{label}: {metric.value:.2f}"
+        return f"• <b>{label}:</b> <i>không có dữ liệu</i>"
+
+    if is_int:
+        val_str = f"{metric.value:,.0f}{unit}"
+    elif is_percent:
+        val_str = f"{metric.value:.2f}%"
+    else:
+        val_str = f"{metric.value:.2f}{unit}"
+
+    note = ""
     if metric.industry_median is not None:
-        text += f" (trung vị ngành: {metric.industry_median:.2f})"
-    return text
+        if is_int:
+            med_str = f"{metric.industry_median:,.0f}{unit}"
+        elif is_percent:
+            med_str = f"{metric.industry_median:.2f}%"
+        else:
+            med_str = f"{metric.industry_median:.2f}{unit}"
+        note = f" <i>(Ngành: {med_str})</i>"
+
+    warning = " ⚠️" if is_debt and metric.value > 150 else ""
+    return f"• <b>{label}:</b> <b>{val_str}</b>{warning}{note}"
 
 
 _DESCRIPTION_MAX_CHARS = 400
@@ -294,49 +319,134 @@ def _format_description(raw: str) -> str:
 
 
 def lookup_card(profile) -> str:
+    symbol = escape(profile.symbol)
+    full_name = escape(profile.full_name or "Chưa rõ tên đầy đủ")
+    exchange = escape(profile.exchange or "—")
+    industry = escape(profile.industry or "Chưa phân loại")
+    listed = escape(profile.listed_date or "—")
+    period = escape(profile.latest_report_period or "—")
+
     lines = [
-        f"<b>{escape(profile.symbol)}</b> — "
-        f"{escape(profile.full_name or 'không có dữ liệu')}",
-        f"Sàn: {escape(profile.exchange or 'không có dữ liệu')}  |  "
-        f"Ngành: {escape(profile.industry or 'không có dữ liệu')}",
-        f"Ngày niêm yết: {escape(profile.listed_date or 'không có dữ liệu')}"
-        f"  |  Vốn điều lệ: {money_billion(profile.charter_capital)}",
-        f"Số cổ phiếu lưu hành: {money(profile.shares_outstanding)}",
+        f"🏢 <b>{symbol} — {full_name}</b>",
+        f"🏛️ <b>Sàn:</b> {exchange}  |  🏷️ <b>Ngành:</b> {industry}",
+        f"📅 <b>Niêm yết:</b> {listed}  |  📑 <b>BCTC gần nhất:</b> {period}",
     ]
 
     if profile.description:
+        lines.append("")
+        lines.append("📝 <b>Lĩnh vực hoạt động chính:</b>")
         lines.append(_format_description(profile.description))
 
     lines.extend(
         [
             "",
-            "<b>Chỉ số chính</b>",
-            f"Giá: {price(profile.price)}"
-            + ("" if profile.change_pct is None else f" ({percent(profile.change_pct)})"),
-            f"Khối lượng: {money(profile.volume)}",
-            f"Vốn hoá: {money_billion(profile.market_cap)}",
-            _metric_line("P/E", profile.pe),
-            _metric_line("P/B", profile.pb),
-            _metric_line("EPS", profile.eps),
-            _metric_line("ROE", profile.roe),
-            _metric_line("ROA", profile.roa),
-            _metric_line("Biên lợi nhuận ròng", profile.net_margin),
-            _metric_line("Nợ/Vốn chủ sở hữu", profile.debt_to_equity),
-            _metric_line("Tỷ suất cổ tức", profile.dividend_yield),
+            "━━━━━━━━━━━━━━━━━━━━━",
+            "💰 <b>THỊ GIÁ & QUY MÔ VỐN</b>",
+        ]
+    )
+
+    if profile.price is not None:
+        p_str = (
+            f"<b>{profile.price:,.0f} đ</b>"
+            if profile.price >= 1000
+            else f"<b>{profile.price:,.2f}</b>"
+        )
+        if profile.change_pct is not None:
+            icon = "🟢" if profile.change_pct > 0 else ("🔴" if profile.change_pct < 0 else "🟡")
+            lines.append(f"• <b>Giá khớp lệnh:</b> {p_str} ({icon} {profile.change_pct:+.2%})")
+        else:
+            lines.append(f"• <b>Giá khớp lệnh:</b> {p_str}")
+    else:
+        lines.append("• <b>Giá khớp lệnh:</b> <i>không có dữ liệu</i>")
+
+    if profile.volume is not None:
+        lines.append(f"• <b>Khối lượng phiên:</b> <b>{money(profile.volume)}</b> CP")
+
+    if profile.market_cap is not None:
+        lines.append(f"• <b>Vốn hoá thị trường:</b> <b>{money_billion(profile.market_cap)}</b>")
+
+    cap_str = money_billion(profile.charter_capital)
+    shares_str = money(profile.shares_outstanding)
+    lines.append(f"• <b>Vốn điều lệ:</b> {cap_str}  |  <b>Lưu hành:</b> {shares_str} CP")
+
+    lines.extend(
+        [
             "",
-            "<b>Cập nhật gần đây</b>",
-            f"Báo cáo tài chính gần nhất: "
-            f"{escape(profile.latest_report_period or 'không có dữ liệu')}",
+            "━━━━━━━━━━━━━━━━━━━━━",
+            "📊 <b>CHỈ SỐ ĐỊNH GIÁ & TÀI CHÍNH</b>",
+            "",
+            "🏷️ <b>Định giá cổ phiếu:</b>",
+            _format_ratio_line("P/E", profile.pe, unit=" lần"),
+            _format_ratio_line("P/B", profile.pb, unit=" lần"),
+            _format_ratio_line("EPS", profile.eps, unit=" đ", is_int=True),
+            "",
+            "📈 <b>Hiệu quả sinh lời & Nợ vay:</b>",
+            _format_ratio_line("ROE", profile.roe, is_percent=True),
+            _format_ratio_line("ROA", profile.roa, is_percent=True),
+            _format_ratio_line("Biên LN ròng", profile.net_margin, is_percent=True),
+            _format_ratio_line(
+                "Nợ / Vốn CSH (D/E)", profile.debt_to_equity, is_percent=True, is_debt=True
+            ),
+            _format_ratio_line("Tỷ suất cổ tức", profile.dividend_yield, is_percent=True),
+        ]
+    )
+
+    lines.extend(
+        [
+            "",
+            "━━━━━━━━━━━━━━━━━━━━━",
+            "📰 <b>CÔNG BỐ THÔNG TIN & TIN TỨC GẦN ĐÂY</b>",
         ]
     )
 
     if profile.news:
-        lines.append("<b>Công bố thông tin / tin tức gần đây</b>")
-        lines.extend(f"  • {escape(item)}" for item in profile.news)
+        for item in profile.news:
+            if hasattr(item, "title"):
+                title = escape(item.title)
+                date_str = escape(item.published_at or "")
+                google_url = item.url or (
+                    f"https://www.google.com/search?q="
+                    f"{urllib.parse.quote_plus(f'{profile.symbol} {item.title}')}"
+                )
+                cafef_url = item.cafef_url or (
+                    f"https://cafef.vn/tim-kiem.chn?keywords="
+                    f"{urllib.parse.quote_plus(profile.symbol)}"
+                )
+                date_prefix = f"• <b>{date_str}</b> — " if date_str else "• "
+                lines.append(
+                    f"{date_prefix}<a href=\"{google_url}\">{title}</a> "
+                    f"<i>[<a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
+                )
+            else:
+                raw_text = str(item)
+                if " — " in raw_text:
+                    dt, tit = raw_text.split(" — ", 1)
+                    search_tit = tit.strip()
+                    if not search_tit.upper().startswith(profile.symbol.upper()):
+                        search_tit = f"{profile.symbol} {search_tit}"
+                    q = urllib.parse.quote_plus(search_tit)
+                    g_url = f"https://www.google.com/search?q={q}"
+                    cq = urllib.parse.quote_plus(f"{profile.symbol} {search_tit[:50]}")
+                    c_url = f"https://cafef.vn/tim-kiem.chn?keywords={cq}"
+                    lines.append(
+                        f"• <b>{escape(dt)}</b> — <a href=\"{g_url}\">{escape(tit)}</a> "
+                        f"<i>[<a href=\"{c_url}\">CafeF ↗</a>]</i>"
+                    )
+                else:
+                    lines.append(f"• {escape(raw_text)}")
+
+        lines.append("")
+        lines.append("🌐 <b>Báo chí & Cổng thông tin chính thống:</b>")
+        lines.append(
+            f"   ↳ <a href=\"https://s.cafef.vn/tin-doanh-nghiep/{profile.symbol}/Event.chn\">"
+            f"Chuyên trang CafeF</a>  |  "
+            f"<a href=\"https://finance.vietstock.vn/{profile.symbol}/tin-tuc-su-kien.htm\">"
+            f"Cổng tin Vietstock</a>"
+        )
     elif profile.recent_events:
-        lines.extend(f"  - {escape(e)}" for e in profile.recent_events)
+        lines.extend(f"• {escape(e)}" for e in profile.recent_events)
     else:
-        lines.append("  Chưa có dữ liệu sự kiện doanh nghiệp / tin tức.")
+        lines.append("<i>Chưa có dữ liệu sự kiện / tin tức trong 6 tháng gần nhất.</i>")
 
     if profile.data_notes:
         lines.append("")
@@ -460,6 +570,7 @@ async def run_with_notice(
     message: Message,
     work: Callable[[], Awaitable[str]],
     threshold: float = PROCESSING_THRESHOLD_SECONDS,
+    reply_markup: Any = None,
 ) -> None:
     """Chay `work()` (coroutine tra ve chuoi HTML de gui cho nguoi dung).
 
@@ -473,6 +584,6 @@ async def run_with_notice(
     except asyncio.TimeoutError:
         notice = await message.answer(PROCESSING_NOTICE)
         result = await task
-        await notice.edit_text(result)
+        await notice.edit_text(result, reply_markup=reply_markup)
         return
-    await message.answer(result)
+    await message.answer(result, reply_markup=reply_markup)
