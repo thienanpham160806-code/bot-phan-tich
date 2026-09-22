@@ -118,22 +118,32 @@ Trên Windows có thể dùng script tác vụ cho gọn (`.\tasks.ps1 <task>` �
 
 ## 4. Bộ lệnh bot
 
-Mỗi lệnh có cả bí danh tiếng Việt và tiếng Anh.
+Giao diện bot được thiết kế theo 3 nhóm nhu cầu cốt lõi, hỗ trợ lệnh ngắn gọn (chạm 1-chạm sao chép):
 
-| Lệnh | Bí danh | Chức năng |
+### 🎯 Nhóm 1: Phân tích 1 cổ phiếu cụ thể
+| Lệnh ngắn | Bí danh | Chức năng |
 |---|---|---|
-| `/tracuu MA` | `/info` | Hồ sơ + chỉ số chính + tin tức gần đây |
-| `/khuyennghi MA` | `/rec`, `/kn` | Khuyến nghị, điểm ba hệ, vùng giá vào/cắt lỗ/mục tiêu, lý do |
-| `/bieudo MA` | `/chart` | Biểu đồ nến kèm mây Ichimoku, MACD, RSI |
-| `/loc [điều kiện]` | `/screen` | Lọc cổ phiếu — 3 bộ lọc dựng sẵn (đột phá/tích luỹ/cảnh báo), hoặc tự gõ vd `/loc san=HOSE kn=MUA rsi=quaban` |
-| `/tinhieu` | `/signals` | Tín hiệu MUA/TÍCH LUỸ và BÁN/GIẢM TỶ TRỌNG của phiên gần nhất |
-| `/bctc MA` | `/fin` | Bình luận tình hình tài chính từ text mining (gửi kèm PDF BCTC nếu có) |
-| `/theodoi MA` | `/sub` | Thêm vào danh sách theo dõi |
-| `/bosach MA` | `/unsub` | Bỏ theo dõi |
-| `/danhsach` | `/watchlist` | Xem danh sách theo dõi kèm khuyến nghị hiện tại |
-| `/canhbao` | `/alerts` | Bật/tắt cảnh báo tự động cuối phiên |
-| `/market` | | Trạng thái chỉ số tham chiếu (VNINDEX) |
-| `/help` | `/start` | Hướng dẫn + menu nút bấm |
+| `/kn MA` | `/khuyennghi`, `/rec` | Khuyến nghị MUA/BÁN/THEO DÕI, kế hoạch giá (vào/cắt lỗ %/mục tiêu %), R:R, tỷ trọng giải ngân và lời khuyên F0 |
+| `/chart MA` | `/bieudo` | Biểu đồ nến kỹ thuật tích hợp mây Ichimoku, MACD, RSI |
+| `/info MA` | `/tracuu` | Hồ sơ niêm yết, định giá P/E, P/B, ROE, vốn hoá chuẩn xác và tin tức công bố thông tin gắn link báo chí |
+| `/fin MA` | `/bctc` | Bóc tách BCTC, cơ cấu nợ vay và rủi ro thuyết minh (gửi kèm PDF BCTC nếu có) |
+
+### 🔍 Nhóm 2: Tìm cơ hội đầu tư & Thông tin toàn sàn
+| Lệnh ngắn | Bí danh | Chức năng |
+|---|---|---|
+| `/loc [đk]` | `/screen` | Bộ lọc cổ phiếu toàn sàn — 3 bộ lọc dựng sẵn (Đột phá, Tích luỹ, Cảnh báo), hoặc gõ điều kiện tuỳ biến (VD: `/loc san=HOSE kn=MUA kl=1.2`) |
+| `/tinhieu` | `/signals` | Tổng hợp cổ phiếu phát sinh tín hiệu MUA hoặc BÁN ở phiên gần nhất |
+| `/market` | | Chỉ số thị trường VN-Index (điểm số, biến động tăng/giảm, biên độ ngày, thanh khoản) |
+| `/tintuc` | `/news` | **Mới:** Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất. Hỗ trợ `/tintuc on` (bật nhận tin tự động mỗi 1 giờ) và `/tintuc off` |
+
+### ⭐ Nhóm 3: Quản lý danh mục & Cảnh báo cá nhân
+| Lệnh ngắn | Bí danh | Chức năng |
+|---|---|---|
+| `/sub MA` | `/theodoi` | Thêm mã vào danh mục theo dõi cá nhân |
+| `/watchlist` | `/danhsach` | Xem danh sách cổ phiếu theo dõi kèm trạng thái khuyến nghị hôm nay |
+| `/unsub MA` | `/bosach` | Bỏ theo dõi một mã |
+| `/canhbao` | `/alerts` | Bật/tắt cảnh báo tự động cuối phiên (15:05 mỗi ngày giao dịch) |
+| `/help` | `/start` | Menu hướng dẫn chi tiết và bàn phím tương tác nhanh |
 
 `/loc` hỗ trợ các khoá lọc tuỳ chỉnh: `san` (sàn), `kn` (khuyến nghị tối
 thiểu), `rsi` (vùng RSI), `may` (vị trí so với mây Kumo), `macd` (chiều giao
@@ -205,29 +215,57 @@ phòng theo thứ tự khai báo ở `config/settings.yaml: data.price_sources` 
 
 ---
 
-## 7. Vận hành: polling trên máy cá nhân, không cần server
+## 7. Vận hành: Chạy ngầm không cần mở code & Triển khai 24/7
 
-Bot dùng **long polling** (`dispatcher.start_polling()`, `bot/main.py`) —
-không mở port, không cần webhook, không cần domain/SSL, không cần thuê
-server. Chạy `python -m bot_phan_tich.bot.main` trên máy cá nhân (kể cả
-Windows) là đủ; bot vẫn nhận và trả lời tin nhắn Telegram bình thường miễn
-máy đang bật và có mạng.
+Bot dùng cơ chế **long polling** (`dispatcher.start_polling()`) — không cần mở port mạng, không cần cấu hình webhook hay SSL domain. Bạn có thể vận hành bot linh hoạt theo các cách dưới đây:
 
-**Cảnh báo tự động cuối phiên chỉ bắn nếu bot đang chạy quanh giờ quét**
-(`config/settings.yaml: bot.scan_cron`, mặc định `5 15 * * 1-5` = **15:05**
-các ngày làm việc, giờ Việt Nam). Cụ thể:
+### 7.1. Chạy ngầm trên Windows (Không cần mở VS Code / Antigravity)
 
-- Nếu bot đang chạy đúng 15:05 → quét + gửi cảnh báo ngay.
-- Nếu bot khởi động **trong vòng 1 tiếng sau** 15:05 (đến 16:05) → APScheduler
-  tự chạy bù công việc bị lỡ (`misfire_grace_time=3600` giây).
-- Nếu bot **tắt hẳn** qua khung giờ đó (ví dụ tắt máy qua đêm) → không có
-  cảnh báo Telegram tự động cho phiên đó. Snapshot vẫn tự cập nhật ở nền vào
-  lần khởi động kế tiếp (`ensure_fresh_in_background()`), nên `/loc`/`/tinhieu`
-  vẫn cho kết quả đúng của phiên gần nhất, chỉ là không có tin nhắn chủ động.
+Trong thư mục gốc dự án đã chuẩn bị sẵn các công cụ 1-click:
 
-Vì vậy: muốn nhận cảnh báo tự động đều đặn, hãy để máy/bot chạy xuyên suốt
-khung 15:00–16:00 các ngày giao dịch (hoặc triển khai trên một máy luôn bật
-— `Dockerfile`/`docker-compose.yml` có sẵn nếu muốn chạy như một service).
+- **`chay_bot_an.bat`** *(Khuyên dùng)*: Click đúp vào file này, bot sẽ tự động khởi động chạy ngầm dưới nền hệ thống bằng `pythonw.exe` (không hiện bất kỳ cửa sổ dòng lệnh đen nào). **Bạn có thể tắt hoàn toàn VS Code / Antigravity / Terminal, bot vẫn tiếp tục hoạt động trên Telegram!**
+- **`tat_bot.bat`**: Click đúp để dừng toàn bộ tiến trình bot đang chạy ngầm khi muốn tắt hoặc cập nhật code.
+- **`chay_bot_hien_log.bat`**: Dùng khi bạn muốn mở cửa sổ console đen để vừa xem trực tiếp từng dòng log xử lý của bot vừa kiểm tra.
+
+> 💡 **Tự động chạy mỗi khi bật máy tính:**
+> 1. Nhấn tổ hợp phím `Windows + R` ➔ gõ `shell:startup` rồi bấm Enter (thư mục Startup của Windows sẽ mở ra).
+> 2. Nhấp chuột phải vào `chay_bot_an.bat` ➔ chọn *Show more options* ➔ *Create shortcut* (Tạo lối tắt).
+> 3. Kéo shortcut vừa tạo thả vào thư mục Startup.
+> ➔ Từ nay cứ mở máy tính lên là bot tự động chạy ngầm, không cần thao tác thủ công.
+
+### 7.2. Chạy 24/7 vĩnh viễn trên Máy chủ Cloud / VPS Linux (Docker)
+
+Nếu bạn muốn bot chạy liên tục cả ngày lẫn đêm kể cả khi bạn tắt máy tính cá nhân đi ngủ:
+
+Dự án đã đóng gói sẵn `Dockerfile` và `docker-compose.yml`:
+
+```bash
+# 1. Clone code về VPS Linux (Ubuntu / Debian / CentOS)
+git clone https://github.com/thienanpham160806-code/bot-phan-tich.git
+cd bot-phan-tich
+
+# 2. Cấu hình biến môi trường
+cp .env.example .env
+nano .env  # Điền TELEGRAM_BOT_TOKEN
+
+# 3. Khởi động bot chạy nền vĩnh viễn bằng Docker
+docker compose up -d --build
+
+# Xem log hoạt động:
+docker compose logs -f
+```
+
+### 7.3. Lịch chạy tự động của Bot
+
+Hệ thống được điều phối tự động bởi `APScheduler`:
+
+1. **Lịch quét tín hiệu cuối phiên (`bot.scan_cron`, mặc định `15:05` thứ 2 – thứ 6):**
+   - Tự động cập nhật nến phiên hôm nay và tính snapshot chỉ báo kỹ thuật toàn sàn.
+   - Quét danh mục cổ phiếu mà từng người dùng đang theo dõi (`/sub`) và chủ động gửi cảnh báo tín hiệu MUA/BÁN hoặc vi phạm cắt lỗ.
+   - Hỗ trợ chạy bù trong vòng 1 tiếng (`misfire_grace_time=3600s`) nếu bot khởi động trễ.
+2. **Lịch tổng hợp tin tức vĩ mô & pháp luật (`bot.news_cron`, mặc định mỗi 1 giờ từ `08:00 – 22:00`):**
+   - Tự động quét RSS từ CafeF & VnExpress, phân loại thông minh (Chính sách, Nghị định, Vĩ mô, TTCK).
+   - Tự động phát sóng (broadcast) bản tin tổng hợp tới tất cả người dùng bật chế độ nhận tin (`/tintuc on`).
 
 ---
 
