@@ -21,7 +21,7 @@ import pandas as pd
 
 from ..config import get_settings
 from ..logging_conf import get_logger
-from . import cache
+from . import cache, market_store
 from .base import FundamentalProvider, PriceProvider, ProviderError
 from .cleaner import clean_ohlcv
 
@@ -68,6 +68,14 @@ class DataRouter:
         end = end or date.today()
         start = start or (end - timedelta(days=365 * 3))
         key = f"ohlcv/{symbol.upper()}/{resolution}"
+
+        # Kho toan san (data/market_store.py) la nguon UU TIEN NHAT: doc mot
+        # file tren dia, khong goi mang. Chi ap dung cho nen "1D" (kho chi
+        # chua du lieu ngay) va khi khong ep lam moi. Xem scripts/backfill_data.py.
+        if not force_refresh and resolution == "1D":
+            stored = market_store.load_ohlcv([symbol])
+            if not stored.empty:
+                return _slice(stored, start, end)
 
         if not force_refresh:
             cached = cache.read_frame(key, max_age=self._ttl_daily)
@@ -162,6 +170,24 @@ class DataRouter:
 
         return {p: pd.DataFrame() for p in ("income", "balance", "cashflow", "ratios")}
 
+    def ratios(self, symbol: str, period: str = "year") -> pd.DataFrame:
+        """Chi rieng bang chi so tai chinh (P/E, P/B, ROE...) - nhe hon
+        financials() vi khong keo them income/balance/cashflow. Dung cho
+        scripts/backfill_fundamentals.py (quet ca vu tru thanh khoan)."""
+        key = f"ratios/{symbol.upper()}/{period}"
+        cached = cache.read_frame(key, max_age=self._ttl_fund)
+        if cached is not None:
+            return cached
+        for name in self._fund_names:
+            try:
+                frame = self._get(name).ratios(symbol, period)  # type: ignore[attr-defined]
+                if not frame.empty:
+                    cache.write_frame(key, frame)
+                    return frame
+            except (Exception, SystemExit) as exc:
+                log.warning("ratios() that bai o nguon %s cho %s: %s", name, symbol, exc)
+        return pd.DataFrame()
+
     def industry_map(self) -> pd.DataFrame:
         key = "industry/map"
         cached = cache.read_frame(key, max_age=self._ttl_fund)
@@ -179,8 +205,7 @@ class DataRouter:
 
     def company_overview(self, symbol: str) -> dict:
         """Ho so doanh nghiep (ten, ngay niem yet, von dieu le...). Xem
-        FundamentalProvider.company_overview trong data/base.py - chua co
-        nguon xac nhan day du, thuong tra dict rong cho toi khi duoc cai.
+        FundamentalProvider.company_overview trong data/base.py.
         """
         for name in self._fund_names:
             try:
@@ -190,6 +215,19 @@ class DataRouter:
             except (Exception, SystemExit) as exc:
                 log.warning("company_overview() that bai o nguon %s cho %s: %s", name, symbol, exc)
         return {}
+
+    def company_news(self, symbol: str, days: int = 180) -> list[dict]:
+        """Cong bo thong tin / tin tuc gan day. Xem
+        FundamentalProvider.company_news trong data/base.py.
+        """
+        for name in self._fund_names:
+            try:
+                news = self._get(name).company_news(symbol, days)  # type: ignore[attr-defined]
+                if news:
+                    return news
+            except (Exception, SystemExit) as exc:
+                log.warning("company_news() that bai o nguon %s cho %s: %s", name, symbol, exc)
+        return []
 
 
 def _slice(frame: pd.DataFrame, start: date, end: date) -> pd.DataFrame:

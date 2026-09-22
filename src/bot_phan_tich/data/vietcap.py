@@ -28,12 +28,29 @@ DA XAC NHAN (kiem tra truc tiep tren vnstock 4.0.8, khong con la gia dinh):
     voi 4 muc do chi tiet (icb_level 1-4); chon muc 4 (chi tiet nhat, vd
     "Moi gioi chung khoan" thay vi "Tai chinh") va doi ten cot thanh
     "industry" cho khop quy uoc chung cua he thong.
+  - `ref.company(symbol=...).info()` co ho so day du: business_model (mo ta
+    hoat dong), charter_capital, listing_date, outstanding_shares... - nguon
+    that cho company_overview() (truoc day luon tra rong).
+  - `ref.company(symbol=...).news()` (facade mac dinh source="kbs") CHI tra
+    ve 1 tin moi nhat, khong loc duoc theo ngay. Nguon phong phu hon la
+    module noi bo `vnstock.explorer.vci.company.Company(symbol=...).news()`
+    (nguon VCI - CHINH Vietcap dang dung o day) - tra ve toi da 50 tin/cong
+    bo thong tin gan nhat (da kiem chung thuc te: 44 tin cho FPT trong 180
+    ngay), co cot `public_date` de tu loc theo khoang thoi gian. Day la cac
+    cong bo thong tin CHINH THUC (nghi quyet HDQT, phat hanh co phieu, ket
+    qua kinh doanh...), khong phai bao chi - phu hop de hien "cap nhat gan
+    day" hon la "tin tuc" thong thuong.
 """
 from __future__ import annotations
 
-from datetime import date
+import random
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta
 
 import pandas as pd
+import requests
 
 from ..logging_conf import get_logger
 from .base import OHLCV_COLUMNS, FundamentalProvider, PriceProvider, ProviderError
@@ -180,3 +197,305 @@ class VietcapProvider(PriceProvider, FundamentalProvider):
         frame = frame[frame.get("icb_level") == _INDUSTRY_LEVEL]
         frame = frame.rename(columns={"icb_name": "industry"})
         return frame[["symbol", "industry"]].reset_index(drop=True)
+
+    def company_overview(self, symbol: str) -> dict:
+        _, reference, _ = self._modules()
+        frame = self._guard(
+            lambda: reference.company(symbol=symbol.upper()).info(),
+            f"company_overview({symbol})",
+        )
+        if frame is None or frame.empty:
+            return {}
+        row = frame.iloc[0]
+        # LUU Y: "charter_capital" tu vnstock tinh bang TY DONG (vd FPT ra
+        # 17413.0 nghia la 17,413 ty dong) - nhan 1e9 de quy ve VND, cho
+        # cung don vi voi shares_outstanding*gia (xem analysis/lookup.py).
+        charter_capital = _clean_float(row.get("charter_capital"))
+        overview = {
+            "listed_date": _clean_str(row.get("listing_date")),
+            "charter_capital": charter_capital * 1e9 if charter_capital is not None else None,
+            "shares_outstanding": _clean_float(row.get("outstanding_shares")),
+            "description": _clean_str(row.get("business_model")),
+        }
+        return {k: v for k, v in overview.items() if v is not None}
+
+    def company_news(self, symbol: str, days: int = 180) -> list[dict]:
+        """Cong bo thong tin chinh thuc gan day, qua module VCI noi bo cua
+        vnstock (xem ghi chu dau file). `Reference().company().news()` mac
+        dinh (source="kbs") chi tra 1 tin nen KHONG dung o day.
+        """
+        try:
+            from vnstock.explorer.vci.company import Company as VciCompany  # type: ignore
+        except ImportError as exc:  # pragma: no cover
+            raise ProviderError("Chua co vnstock.explorer.vci (kiem tra ban vnstock)") from exc
+
+        frame = self._guard(
+            lambda: VciCompany(symbol=symbol.upper()).news(), f"company_news({symbol})"
+        )
+        if frame is None or frame.empty or "public_date" not in frame.columns:
+            return []
+
+        cutoff = datetime.now() - timedelta(days=days)
+        frame = frame.copy()
+        frame["public_date"] = pd.to_datetime(frame["public_date"], errors="coerce")
+        frame = frame[frame["public_date"] >= cutoff].sort_values("public_date", ascending=False)
+
+        title_col = "news_title" if "news_title" in frame.columns else None
+        if title_col is None:
+            return []
+        return [
+            {"title": str(row[title_col]), "published_at": row["public_date"]}
+            for _, row in frame.iterrows()
+            if pd.notna(row[title_col])
+        ]
+
+
+def _clean_str(value) -> str | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _clean_float(value) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+# ===================================================================
+# Tai TOAN SAN tu endpoint cong khai cua bang gia Vietcap (trading.vietcap.com.vn).
+#
+# Dung cho scripts/backfill_data.py de nap MOT KHO (data/market_store.py)
+# thay vi goi vnstock tung ma mot qua VietcapProvider o tren (cham, de cham
+# rate limit cua vnstock - xem docstring dau file). Day la endpoint CONG
+# KHAI ma chinh trang bang gia tu goi khi mo trinh duyet, KHONG can dang
+# nhap va KHONG dung token tai khoan chung khoan o day.
+#
+# DA KIEM CHUNG TRUC TIEP (22/09/2026, khong con la gia dinh tu script cu):
+#   - Header toi thieu (chi User-Agent/Referer/Origin) bi endpoint tra ve
+#     RONG ([]) du HTTP 200 - phai dung dung bo header ma chinh vnstock
+#     dung cho nguon VCI (vnstock.core.utils.user_agent.get_headers), gom ca
+#     cac header Sec-Fetch-*/Accept-Language/DNT... ma trinh duyet that gui.
+#   - `POST .../chart/OHLCChart/gap-chart` CHI TRA DU LIEU KHI `symbols` co
+#     DUNG 1 MA - gui nhieu ma trong cung 1 request tra ve RONG (khong bao
+#     loi, HTTP van 200), KHAC voi gia dinh ban dau la gui duoc theo lo 20
+#     ma. Vi vay fetch_ohlcv_bulk() duoi day chay SONG SONG CO GIOI HAN
+#     (ThreadPoolExecutor) tren tung ma rieng, thay vi gop lo.
+#   - `POST .../price/symbols/getList` (bang gia trong phien) THUC SU nhan
+#     duoc nhieu ma/request (da thu 5 ma, ra du 5 ket qua) - endpoint nay
+#     dung duoc theo lo nhu thiet ke ban dau.
+#
+# Endpoint KHONG co tai lieu chinh thuc va co the doi bat cu luc nao - bao
+# boc trong try/except, khong dua vao duong ra quyet dinh chinh (chi dung
+# de NAP KHO, phan quyet dinh khuyen nghi van di qua indicators/analysis
+# nhu thuong voi du lieu da nap).
+# ===================================================================
+
+_PUBLIC_BASE = "https://trading.vietcap.com.vn/api"
+_EXCHANGE_ALIAS = {"HSX": "HOSE", "HOSE": "HOSE", "HNX": "HNX", "UPCOM": "UPCOM"}
+_DEFAULT_CONCURRENCY = 8  # so request OHLCV chay dong thoi (moi ma 1 request rieng)
+
+
+def _public_headers() -> dict[str, str]:
+    """Bo header GIONG HET trinh duyet that ma vnstock dung cho nguon VCI.
+
+    Header toi thieu (chi User-Agent/Referer/Origin) bi endpoint tra ve RONG
+    - da kiem chung truc tiep (xem ghi chu dau khoi nay). Dung lai ham cua
+    vnstock thay vi tu doan lai bo header, vi day la ban DA XAC NHAN chay dung.
+    """
+    try:
+        from vnstock.core.utils.user_agent import get_headers  # type: ignore
+
+        return get_headers(data_source="VCI")
+    except ImportError:  # pragma: no cover - vnstock luon co san trong requirements
+        return {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
+            ),
+            "Referer": "https://trading.vietcap.com.vn/",
+            "Origin": "https://trading.vietcap.com.vn",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+
+_public_session = requests.Session()
+_public_session.headers.update(_public_headers())
+
+
+def _polite_sleep(base: float = 1.0) -> None:
+    """Gian nhip 1-2 giay co nhieu ngau nhien, tranh goi dong loat."""
+    time.sleep(base + random.uniform(0, base))
+
+
+def _request_json_public(
+    method: str, url: str, payload: dict | None = None, attempts: int = 5, delay: float = 1.0
+):
+    """Goi endpoint cong khai, lui theo cap so nhan khi gap 429/5xx hoac loi mang."""
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = _public_session.request(method, url, json=payload, timeout=30)
+            if resp.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"HTTP {resp.status_code}")
+            resp.raise_for_status()
+            return resp.json()
+        except (requests.RequestException, ValueError) as exc:
+            if attempt == attempts:
+                raise ProviderError(
+                    f"Endpoint cong khai Vietcap loi sau {attempts} lan thu: {exc}"
+                ) from exc
+            wait = delay * 2 ** (attempt - 1)
+            log.warning(
+                "goi %s loi (%s), thu lai sau %.0fs [%d/%d]", url, exc, wait, attempt, attempts
+            )
+            time.sleep(wait)
+
+
+def _chunks(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def _fetch_in_batches(
+    symbols: list[str],
+    batch_size: int,
+    fetch_one_batch: Callable[[list[str]], list],
+    label: str,
+    delay: float,
+) -> list:
+    """Chay theo lo; lo nao bi tu choi thi chia doi va thu lai, toi thieu 1 ma."""
+    results: list = []
+    queue = list(_chunks(symbols, batch_size))
+    done = 0
+    while queue:
+        batch = queue.pop(0)
+        try:
+            results.extend(fetch_one_batch(batch))
+            done += len(batch)
+            log.info("[%s] %d/%d ma", label, done, len(symbols))
+        except Exception as exc:
+            if len(batch) == 1:
+                log.warning("[%s] bo qua %s: %s", label, batch[0], exc)
+                done += 1
+            else:
+                half = len(batch) // 2
+                log.info("[%s] lo %d ma bi tu choi -> chia doi", label, len(batch))
+                queue[:0] = [batch[:half], batch[half:]]
+        _polite_sleep(delay)
+    return results
+
+
+def fetch_all_symbols(exchanges: list[str]) -> pd.DataFrame:
+    """Danh sach TOAN BO ma co phieu (3 ky tu) tren cac san yeu cau, mot request duy nhat.
+
+    `GET /price/symbols/getAll`. Cot tra ve: symbol, exchange.
+    """
+    raw = _request_json_public("GET", f"{_PUBLIC_BASE}/price/symbols/getAll")
+    frame = pd.DataFrame(raw if isinstance(raw, list) else raw.get("data", []))
+    if frame.empty:
+        raise ProviderError("Endpoint getAll tra ve danh sach ma rong - co the da doi cau truc")
+
+    exch_col = next((c for c in ("board", "exchange", "floor") if c in frame.columns), None)
+    if exch_col:
+        frame["exchange"] = frame[exch_col].astype(str).str.upper().map(_EXCHANGE_ALIAS)
+        frame = frame[frame["exchange"].isin(exchanges)]
+
+    type_col = next((c for c in ("type", "securityType", "stockType") if c in frame.columns), None)
+    if type_col:
+        frame = frame[frame[type_col].astype(str).str.upper().str.contains("STOCK")]
+
+    frame["symbol"] = frame["symbol"].astype(str).str.upper()
+    frame = frame[frame["symbol"].str.fullmatch(r"[A-Z0-9]{3}")]  # chi ma co phieu 3 ky tu
+    frame = frame.drop_duplicates("symbol").reset_index(drop=True)
+    return frame[["symbol", "exchange"]] if "exchange" in frame.columns else frame
+
+
+def fetch_price_board(
+    symbols: list[str], batch_size: int = 100, delay: float = 1.0
+) -> pd.DataFrame:
+    """Anh chup gia trong phien cho danh sach ma, theo lo 100 ma/request.
+
+    `POST /price/symbols/getList`, body {"symbols": [...]}. Dung cho gia
+    hien tai/khoi luong trong phien (khac voi lich su OHLCV).
+    """
+    def one_batch(batch: list[str]) -> list[dict]:
+        url = f"{_PUBLIC_BASE}/price/symbols/getList"
+        raw = _request_json_public("POST", url, {"symbols": batch})
+        return raw if isinstance(raw, list) else raw.get("data", [])
+
+    rows = _fetch_in_batches(symbols, batch_size, one_batch, "price_board", delay)
+    return pd.json_normalize(rows, sep=".")
+
+
+def _fetch_ohlcv_one(symbol: str, count_back: int, to_ts: int) -> pd.DataFrame | None:
+    payload = {"timeFrame": "ONE_DAY", "symbols": [symbol], "to": to_ts, "countBack": count_back}
+    raw = _request_json_public("POST", f"{_PUBLIC_BASE}/chart/OHLCChart/gap-chart", payload)
+    items = raw if isinstance(raw, list) else raw.get("data", [])
+    if not items or not items[0] or "t" not in items[0]:
+        return None
+    item = items[0]
+    return pd.DataFrame(
+        {
+            "symbol": symbol,
+            "time": pd.to_datetime(pd.Series(item["t"], dtype="int64"), unit="s"),
+            "open": item.get("o"), "high": item.get("h"),
+            "low": item.get("l"), "close": item.get("c"),
+            "volume": item.get("v"),
+        }
+    )
+
+
+def fetch_ohlcv_bulk(
+    symbols: list[str], count_back: int, to_ts: int | None = None,
+    max_workers: int = _DEFAULT_CONCURRENCY, delay: float = 0.3,
+) -> pd.DataFrame:
+    """Lich su OHLCV cho danh sach ma.
+
+    `POST /chart/OHLCChart/gap-chart` CHI tra du lieu khi `symbols` co dung
+    MOT ma (da kiem chung truc tiep - xem ghi chu dau khoi ham nay o file
+    nay). Vi vay ham nay goi MOI MA MOT REQUEST RIENG, chay SONG SONG CO
+    GIOI HAN bang ThreadPoolExecutor (`max_workers`, mac dinh xem
+    _DEFAULT_CONCURRENCY) de bu lai toc do - khong con "gui theo lo" nhu
+    gia dinh ban dau, nhung van "lich su" voi server (moi thread tu gian
+    nhip `delay` giay + nhieu ngau nhien sau moi request).
+
+    Tra ve DataFrame dung dinh dang data/market_store.py can:
+    symbol, time, open, high, low, close, volume. Ma nao loi/rong thi bo
+    qua (ghi log), khong lam hong ca lot.
+    """
+    to_ts = to_ts if to_ts is not None else int(time.time())
+    frames: list[pd.DataFrame] = []
+    done = 0
+
+    def worker(symbol: str) -> pd.DataFrame | None:
+        try:
+            result = _fetch_ohlcv_one(symbol, count_back, to_ts)
+        finally:
+            _polite_sleep(delay)
+        return result
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_symbol = {executor.submit(worker, s): s for s in symbols}
+        for future in as_completed(future_to_symbol):
+            symbol = future_to_symbol[future]
+            done += 1
+            try:
+                frame = future.result()
+            except Exception as exc:
+                log.warning("[ohlcv_bulk] bo qua %s: %s", symbol, exc)
+                continue
+            if frame is not None:
+                frames.append(frame)
+            if done % 100 == 0 or done == len(symbols):
+                log.info("[ohlcv_bulk] %d/%d ma", done, len(symbols))
+
+    if not frames:
+        return pd.DataFrame(columns=OHLCV_COLUMNS + ["symbol"])
+    frame = pd.concat(frames, ignore_index=True)
+    frame = frame.drop_duplicates(["symbol", "time"]).sort_values(["symbol", "time"])
+    return frame.reset_index(drop=True)

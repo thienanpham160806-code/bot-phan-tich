@@ -39,6 +39,41 @@ def _donchian_mid(high: pd.Series, low: pd.Series, period: int) -> pd.Series:
             + low.rolling(period, min_periods=period).min()) / 2
 
 
+def _classify_vs_kumo(close: float, senkou_a: float, senkou_b: float) -> str:
+    top, bottom = max(senkou_a, senkou_b), min(senkou_a, senkou_b)
+    if close > top:
+        return "tren_may"
+    if close < bottom:
+        return "duoi_may"
+    return "trong_may"
+
+
+def _kumo_break_bars(
+    close: pd.Series, senkou_a: pd.Series, senkou_b: pd.Series
+) -> int | None:
+    """So phien ke tu khi gia VUOT LEN/XUONG khoi may VA GIU NGUYEN trang
+    thai do lien tuc den phien cuoi. None neu dang trong may, hoac khong du
+    du lieu de xac dinh (dung cho bo loc "dot pha" - dieu kien can tin hieu
+    MOI, khong phai da vuot may tu hang chuc phien truoc).
+    """
+    valid = close.notna() & senkou_a.notna() & senkou_b.notna()
+    idx = close.index[valid]
+    if len(idx) < 2:
+        return None
+
+    zones = [_classify_vs_kumo(close[i], senkou_a[i], senkou_b[i]) for i in idx]
+    current_zone = zones[-1]
+    if current_zone == "trong_may":
+        return None
+
+    count = 0
+    for zone in reversed(zones):
+        if zone != current_zone:
+            break
+        count += 1
+    return count - 1  # 0 = vua vuot dung phien nay
+
+
 def ichimoku(
     frame: pd.DataFrame, tenkan: int = 9, kijun: int = 26, senkou_b: int = 52, shift: int = 26
 ) -> pd.DataFrame:
@@ -87,6 +122,9 @@ def ichimoku_state(
       chikou_free     True neu gia hien tai cao hon gia `shift` phien truoc
                        (Chikou nam thoang phia tren gia qua khu)
       kumo_thickness  do day may hien tai, chuan hoa theo ATR14
+      kumo_break_bars So phien ke tu khi gia vuot LEN/XUONG khoi may VA GIU
+                       NGUYEN trang thai do lien tuc den gio - None neu dang
+                       trong may. 0 nghia la vua vuot dung phien nay.
     """
     lines = ichimoku(frame, tenkan, kijun, senkou_b, shift)
     close = frame["close"]
@@ -97,6 +135,7 @@ def ichimoku_state(
         return {
             "price_vs_kumo": None, "tk_cross": (None, None, None),
             "kumo_twist": None, "chikou_free": None, "kumo_thickness": None,
+            "kumo_break_bars": None,
         }
 
     last_close = float(close.iloc[-1])
@@ -135,10 +174,13 @@ def ichimoku_state(
             atr_series.iloc[-1]
         )
 
+    break_bars = _kumo_break_bars(close, lines["senkou_a"], lines["senkou_b"])
+
     return {
         "price_vs_kumo": price_vs_kumo,
         "tk_cross": (cross, bars_since, strength),
         "kumo_twist": kumo_twist,
         "chikou_free": chikou_free,
         "kumo_thickness": kumo_thickness,
+        "kumo_break_bars": break_bars,
     }

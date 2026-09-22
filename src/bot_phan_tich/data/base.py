@@ -70,10 +70,20 @@ class FundamentalProvider(ABC):
         """Ho so doanh nghiep: ten day du, ngay niem yet, von dieu le, so
         luong CP luu hanh, mo ta hoat dong.
 
-        TODO: chua co nguon xac nhan cung cap day du cac truong nay tai thoi
-        diem viet (xem docs/lay-api.md). Nguon nao cai duoc thi tra dict voi
-        cac khoa: full_name, listed_date, charter_capital, shares_outstanding,
-        description - khoa nao khong co thi bo qua (dung .get() o phia goi).
-        Mac dinh tra dict rong, KHONG bia du lieu.
+        Nguon nao cai duoc thi tra dict voi cac khoa: full_name, listed_date,
+        charter_capital, shares_outstanding, description - khoa nao khong co
+        thi bo qua (dung .get() o phia goi). Mac dinh tra dict rong, KHONG
+        bia du lieu. Xem VietcapProvider.company_overview trong data/vietcap.py
+        cho mot cai dat that (Reference().company(symbol).info() cua vnstock).
         """
         return {}
+
+    def company_news(self, symbol: str, days: int = 180) -> list[dict]:
+        """Tin tuc / cong bo thong tin gan day cua doanh nghiep.
+
+        Tra ve danh sach dict {title, published_at} sap xep MOI NHAT TRUOC,
+        chi gom tin trong `days` ngay gan day. Mac dinh tra danh sach rong,
+        KHONG bia tin. Xem VietcapProvider.company_news trong data/vietcap.py
+        cho mot cai dat that.
+        """
+        return []

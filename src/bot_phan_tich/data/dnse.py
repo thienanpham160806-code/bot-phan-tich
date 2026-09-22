@@ -1,14 +1,13 @@
 """Nguon du lieu DNSE qua SDK chinh thuc.
 
-`pip install openapi-sdk` (theo README cua DNSE) KHONG cai duoc - package do
-chua duoc publish that len PyPI tinh den 21/09/2026, du docs chinh thuc noi
-vay. Repo Git (https://github.com/dnse-tech/openapi-sdk) cung khong co
-setup.py/pyproject.toml nen khong cai duoc qua `pip install git+...`. Giai
-phap: vendor `python/dnse/` NGUYEN VAN vao `vendor/dnse-sdk/` (xem README va
-SOURCE_COMMIT trong do), roi `pip install -e vendor/dnse-sdk`.
+`pip install openapi-sdk` (theo README cua DNSE) KHONG cai duoc - ten goi do
+chi la vi du trong docs, KHONG phai ten that tren PyPI. Ten goi PyPI THAT su
+la `dnse-sdk-openapi` (da xac nhan tren PyPI 22/09/2026 - xem requirements.txt),
+cai binh thuong bang `pip install -r requirements.txt`, khong can vendor nua.
+Import trong code van la `from dnse import DNSEClient` (khong doi ten module).
 
-Cac chi tiet duoi day DA XAC NHAN truc tiep tu `spec/dnse-openapi-2026-09-15.yaml`
-trong repo goc (khong con la gia dinh):
+Cac chi tiet duoi day DA XAC NHAN truc tiep tu tai lieu API chinh thuc cua DNSE
+(https://developers.dnse.com.vn) va tu doc source cua SDK (dnse/api/client.py):
 
   - Moi phuong thuc cua DNSEClient tra ve tuple (status_code, body_text),
     body_text la CHUOI JSON THO - phai tu json.loads(), SDK khong tu parse.
@@ -82,8 +81,8 @@ class DnseProvider(PriceProvider):
                 from dnse import DNSEClient  # type: ignore
             except ImportError as exc:  # pragma: no cover
                 raise ProviderError(
-                    "Chua cai SDK cua DNSE. Chay: pip install -e vendor/dnse-sdk "
-                    "(xem vendor/dnse-sdk/README.md)"
+                    "Chua cai SDK cua DNSE. Chay: pip install -r requirements.txt "
+                    "(goi PyPI: dnse-sdk-openapi)"
                 ) from exc
 
             self._client = DNSEClient(

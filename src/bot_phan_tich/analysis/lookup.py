@@ -147,7 +147,9 @@ def _fill_price_snapshot(profile: CompanyProfile, router: DataRouter) -> None:
         if prev["close"]:
             profile.change_pct = profile.price / float(prev["close"]) - 1
         if profile.shares_outstanding and profile.price:
-            profile.market_cap = profile.price * profile.shares_outstanding
+            # Gia OHLCV tu DNSE/Vietcap tinh bang NGHIN DONG/CP (vd 65.18
+            # nghia la 65,180 VND) - nhan 1000 de ra von hoa dung don vi VND.
+            profile.market_cap = profile.price * 1000 * profile.shares_outstanding
     except Exception as exc:
         log.warning("lookup(%s): khong lay duoc gia: %s", profile.symbol, exc)
         profile.data_notes.append("Khong lay duoc gia gan nhat")
@@ -210,6 +212,10 @@ def _fill_industry_median(profile: CompanyProfile, router: DataRouter) -> None:
             getattr(profile, key).industry_median = float(pd.Series(values).median())
 
 
+_NEWS_WINDOW_DAYS = 180  # 6 thang gan nhat
+_NEWS_MAX_ITEMS = 8
+
+
 def _fill_recent_updates(profile: CompanyProfile, router: DataRouter) -> None:
     try:
         income = router.financials(profile.symbol, period="year").get("income")
@@ -222,10 +228,21 @@ def _fill_recent_updates(profile: CompanyProfile, router: DataRouter) -> None:
     except Exception as exc:
         log.warning("lookup(%s): khong lay duoc ky BCTC gan nhat: %s", profile.symbol, exc)
 
-    # TODO: su kien doanh nghiep (cong tuc, phat hanh, DHCD) va tin tuc can
-    # mot nguon du lieu qua data/router.py chua duoc xac nhan tai thoi diem
-    # viet module nay (xem docs/lay-api.md). De trong, KHONG bia du lieu.
-    profile.data_notes.append("Chua co nguon du lieu su kien doanh nghiep / tin tuc")
+    try:
+        items = router.company_news(profile.symbol, days=_NEWS_WINDOW_DAYS)
+    except Exception as exc:
+        log.warning("lookup(%s): khong lay duoc tin tuc/cong bo: %s", profile.symbol, exc)
+        items = []
+
+    if items:
+        for item in items[:_NEWS_MAX_ITEMS]:
+            published = item.get("published_at")
+            date_str = published.strftime("%d/%m/%Y") if pd.notna(published) else "?"
+            profile.news.append(f"{date_str} — {item['title']}")
+    else:
+        profile.data_notes.append(
+            f"Không tìm thấy công bố thông tin / tin tức nào trong {_NEWS_WINDOW_DAYS} ngày gần đây"
+        )
 
 
 def lookup(symbol: str) -> CompanyProfile:

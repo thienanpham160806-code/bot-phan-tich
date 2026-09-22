@@ -55,6 +55,15 @@ class Recommendation:
     reasons: list[str] = field(default_factory=list)
     vetoed_by_kumo: bool = False
 
+    # Trang thai THO cua tung he chi bao - da tinh san ben trong recommend(),
+    # tra kem theo de noi khac (analysis/snapshot.py, analysis/screener.py)
+    # KHONG PHAI tinh lai lan nua tren cung mot `frame`.
+    macd_state: dict = field(default_factory=dict)
+    rsi_state: dict = field(default_factory=dict)
+    ichimoku_state: dict = field(default_factory=dict)
+    divergence: dict = field(default_factory=dict)
+    volume_ratio: float | None = None
+
 
 def _ichimoku_periods(settings) -> tuple[int, int, int]:
     preset_name = settings.get("indicators.ichimoku_preset", "goc_nhat_6ngay")
@@ -312,8 +321,9 @@ def recommend(
 
     confidence = "cao"
     vol_ratio = volume_ratio(frame, period=20).dropna()
+    vol_ratio_last = float(vol_ratio.iloc[-1]) if not vol_ratio.empty else None
     low_volume_threshold = settings.get("scoring.low_volume_ratio", 0.5)
-    if not vol_ratio.empty and float(vol_ratio.iloc[-1]) < low_volume_threshold:
+    if vol_ratio_last is not None and vol_ratio_last < low_volume_threshold:
         confidence = _downgrade_confidence(confidence)
 
     close = float(frame["close"].iloc[-1])
@@ -353,4 +363,9 @@ def recommend(
         risk_reward=risk_reward,
         reasons=reasons,
         vetoed_by_kumo=vetoed,
+        macd_state=macd_st,
+        rsi_state=rsi_st,
+        ichimoku_state=ichi_st,
+        divergence=divergence,
+        volume_ratio=vol_ratio_last,
     )

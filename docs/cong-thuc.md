@@ -130,3 +130,85 @@ tin hieu rieng: `generate_buy_signals()` quet lai `recommend()` tren tung
 phien qua khu (chi dung du lieu toi thoi diem do, khong nhin truoc tuong
 lai), lay cac phien co khuyen nghi MUA lam tin hieu vao lenh cho
 `backtest/engine.py:run()`.
+
+## 8. Ba bo loc dung san cua `/loc` — `analysis/screener.py`
+
+`/loc` CHI DOC `data/market/snapshot.parquet` (xem `analysis/snapshot.py`,
+tinh san sau gio dong cua) - khong tinh lai, khong goi mang. Ca ba bo loc
+duoi day deu doi hoi tin hieu **MOI** (vua xay ra trong vai phien gan day),
+khong chi dung "dang o trang thai do" - mot ma da giao cat MACD tu 20 phien
+truoc (du van dang tren may, khoi luong cao) se **KHONG** lot vao "dot pha",
+vi `macd_bars_since` (so phien ke tu lan giao cat gan nhat) cua no vuot
+nguong `max_macd_bars_since`.
+
+### 8.1. "Dot pha" (`preset_breakout()`)
+
+Tat ca dieu kien deu phai dung (AND):
+
+```
+price_vs_kumo == "tren_may"                                 (gia dang TREN may)
+kumo_break_bars <= screener.breakout.max_kumo_break_bars     (vuot may TRONG toi da N phien, mac dinh 3)
+macd_cross == "golden"                                       (giao cat MACD gan nhat la TANG)
+macd_bars_since <= screener.breakout.max_macd_bars_since      (giao cat do TRONG toi da N phien, mac dinh 3)
+vol_ratio20 >= screener.breakout.min_volume_ratio             (khoi luong >= 1.5x TB20, mac dinh)
+```
+
+Thieu du lieu (`kumo_break_bars`/`macd_bars_since` la NaN, vi du gia dang
+NAM TRONG may nen khong co "lan vuot may gan nhat") -> loai ma do khoi ket
+qua (khong the xac nhan la "moi").
+
+### 8.2. "Tich luy" (`preset_accumulate()`)
+
+```
+price_vs_kumo == "trong_may"                                  (gia dang TRONG may - chua ro xu huong)
+kumo_thickness <= screener.accumulate.max_kumo_thickness       (may MONG, chuan hoa theo ATR14, mac dinh 1.0)
+rsi_zone == "trung_tinh"                                       (RSI o vung giua, khong qua mua/qua ban)
+vol_ratio20 <= screener.accumulate.max_volume_ratio            (khoi luong CAN, <= 0.8x TB20 mac dinh - dau hieu tich luy am tham)
+```
+
+### 8.3. "Canh bao" (`preset_warning()`)
+
+Khac hai bo tren: dung logic **HOAC** (OR), vi day la canh bao rui ro - chi
+can MOT trong hai dieu kien la du dang chu y:
+
+```
+(price_vs_kumo == "duoi_may" VA kumo_break_bars <= screener.warning.max_kumo_break_bars)
+HOAC
+divergence_type == "bearish"
+```
+
+Ket qua sap xep TANG DAN theo `total_score` (te nhat/am nhieu nhat truoc).
+
+### 8.4. Loc tuy chinh (`/loc <dieu_kien>`)
+
+Cu phap `key=value`, cach nhau boi khoang trang, khong phan biet co dau hay
+khong dau (vd `rsi=quá_bán` va `rsi=quaban` tuong duong). Vi du:
+`/loc san=HOSE kn=MUA rsi=quaban`.
+
+| Khoa | Y nghia | Gia tri hop le |
+|---|---|---|
+| `san` | San giao dich | `HOSE`, `HNX`, `UPCOM` (cach nhau boi dau phay) |
+| `kn` | Hang khuyen nghi TOI THIEU | `mua`, `tichluy`, `theodoi`, `giamtytrong`, `ban` |
+| `rsi` | Vung RSI | `quamua`, `trungtinh`, `quaban` |
+| `may` | Vi tri gia so voi may Kumo | `tren`, `trong`, `duoi` |
+| `macd` | Chieu giao cat MACD | `tang` (golden), `giam` (death) |
+| `phanky` | Loai phan ky | `duong` (bullish), `am` (bearish) |
+| `diem` | Diem tong TOI THIEU | so thuc, vd `diem=30` |
+| `kl` | Ty le khoi luong/TB20 TOI THIEU | so thuc, vd `kl=1.5` |
+| `pe` | P/E TOI DA | so thuc, vd `pe=15` |
+| `roe` | ROE (%) TOI THIEU | so thuc, vd `roe=15` |
+
+`pe`/`roe` can `data/market/fundamentals.parquet` da duoc gop vao snapshot
+(chay `python scripts/backfill_fundamentals.py` truoc) - neu chua co, dieu
+kien do duoc **BO QUA NHE NHANG** (khong loai het ket qua), kem ghi chu ro
+trong phan hoi cua bot.
+
+## 9. Tin hieu phien gan nhat — `/tinhieu` (`analysis/screener.py:today_signals()`)
+
+Cung nguyen tac voi `/loc`: CHI DOC snapshot, khong tinh lai. Chia lam hai
+nhom, moi nhom toi da `screener.max_results` ma (mac dinh 15):
+
+```
+MUA / TICH LUY:        action IN {MUA, TICH LUY},        sap xep GIAM DAN theo total_score
+BAN / GIAM TY TRONG:    action IN {BAN, GIAM TY TRONG},    sap xep TANG DAN theo total_score (te nhat truoc)
+```

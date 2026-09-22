@@ -1,6 +1,7 @@
 """Lenh chung: /start, /help, /market - va tien ich dung chung cho handlers khac."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 
 from aiogram import Router
@@ -25,6 +26,7 @@ Chiến lược: hợp lưu ba hệ chỉ báo MACD, RSI, Ichimoku Kinko Hyo.
 /khuyennghi MA (/rec, /kn) — khuyến nghị mua/bán, điểm ba hệ, giá vào/cắt lỗ/mục tiêu
 /bieudo MA (/chart) — biểu đồ nến kèm mây Ichimoku, MACD, RSI
 /loc (/screen) — lọc cổ phiếu, có nút bấm cho ba bộ lọc dựng sẵn
+/tinhieu (/signals) — tín hiệu MUA/TÍCH LUỸ và BÁN/GIẢM TỶ TRỌNG của phiên gần nhất
 /bctc MA (/fin) — bình luận tình hình tài chính (gửi kèm PDF BCTC nếu có)
 /theodoi MA (/sub) — thêm vào danh sách theo dõi
 /bosach MA (/unsub) — bỏ theo dõi
@@ -58,7 +60,7 @@ async def cmd_market(message: Message) -> None:
         data = get_router()
         benchmark = get_universe_config().get("benchmark", "VNINDEX")
         end = date.today()
-        frame = data.ohlcv(benchmark, end - timedelta(days=30), end)
+        frame = await asyncio.to_thread(data.ohlcv, benchmark, end - timedelta(days=30), end)
         if frame.empty:
             await message.answer(error_card(f"Không có dữ liệu cho {benchmark}"))
             return

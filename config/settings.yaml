@@ -72,14 +72,30 @@ bot:
   timezone: Asia/Ho_Chi_Minh
 
 screener:
-  # Qua thoi gian nay thi dung quet va tra ket qua da co kem ghi chu, khong
-  # treo bot. Xem analysis/screener.py:screen_report().
-  timeout_seconds: 25.0
+  # /loc CHI DOC data/market/snapshot.parquet (xem analysis/snapshot.py),
+  # khong con tinh lai/goi mang nen khong can timeout nua.
+  max_results: 15
+  breakout:
+    max_kumo_break_bars: 3     # gia moi vuot may trong toi da N phien
+    max_macd_bars_since: 3     # MACD moi giao cat trong toi da N phien
+    min_volume_ratio: 1.5
+  accumulate:
+    max_kumo_thickness: 1.0    # do day may / ATR14 - duoi nguong nay coi la "mong"
+    max_volume_ratio: 0.8
+  warning:
+    max_kumo_break_bars: 3     # gia moi thung xuong duoi may trong toi da N phien
+
+fundamentals:
+  # scripts/backfill_fundamentals.py (data/fundamentals_store.py). Ratios
+  # (P/E, P/B, ROE) doi cham theo quy/nam nen khong can nap lai moi ngay.
+  cache_days: 7
+  request_delay_seconds: 3.0   # gian cach giua cac ma, tranh cham rate limit nguon
 
 realtime:
-  # Chua co API key tai thoi diem viet (xem docs/lay-api.md). Khi enabled la
-  # false, data/realtime.py.get_realtime_provider() luon tra NullRealtimeProvider
-  # va toan bo bot chay binh thuong bang du lieu cuoi phien qua data/router.py.
+  # Chua co API key tai thoi diem viet (xem README.md, muc "Cau hinh nguon
+  # du lieu"). Khi enabled la false, data/realtime.py.get_realtime_provider()
+  # luon tra NullRealtimeProvider va toan bo bot chay binh thuong bang du
+  # lieu cuoi phien qua data/router.py.
   enabled: false
   provider: dnse
   fallback: vietcap

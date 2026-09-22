@@ -33,6 +33,9 @@ class FakeRouter:
     def company_overview(self, symbol):
         return {}
 
+    def company_news(self, symbol, days=180):
+        return []
+
     def ohlcv(self, symbol, start, end):
         return self.price_frame
 
@@ -61,7 +64,10 @@ def test_lookup_fills_available_fields_and_notes_missing_ones(monkeypatch):
     # Khong co nguon xac nhan cho cac truong nay -> phai la None, khong bia so.
     assert profile.listed_date is None
     assert profile.charter_capital is None
-    assert any("su kien" in note.lower() for note in profile.data_notes)
+    has_news_note = any(
+        "công bố" in note.lower() or "tin tức" in note.lower() for note in profile.data_notes
+    )
+    assert has_news_note
 
 
 def test_lookup_handles_provider_errors_without_raising(monkeypatch):

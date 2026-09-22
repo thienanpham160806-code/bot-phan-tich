@@ -1,6 +1,7 @@
 """Lenh theo doi: /theodoi (/sub), /bosach (/unsub), /danhsach (/watchlist), /canhbao (/alerts)."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 
 from aiogram import Router
@@ -48,20 +49,27 @@ async def cmd_unsub(message: Message) -> None:
         await message.answer(error_card(str(exc)))
 
 
+def _build_watchlist_recommendations(symbols: list[str]) -> dict:
+    """Tinh khuyen nghi cho tung ma trong danh sach theo doi - vong lap goi
+    mang + tinh chi bao, chay trong thread rieng qua asyncio.to_thread()."""
+    recommendations = {}
+    data = get_router()
+    end = date.today()
+    for symbol in symbols:
+        try:
+            frame = data.ohlcv(symbol, end - timedelta(days=400), end)
+            if len(frame) >= _MIN_BARS:
+                recommendations[symbol] = compute_recommendation(frame, symbol)
+        except Exception as exc:
+            log.warning("danhsach: bo qua %s do loi: %s", symbol, exc)
+    return recommendations
+
+
 @router.message(Command("danhsach", "watchlist"))
 async def cmd_watchlist(message: Message) -> None:
     try:
         symbols = watchlist_store.list_symbols(message.chat.id)
-        recommendations = {}
-        data = get_router()
-        end = date.today()
-        for symbol in symbols:
-            try:
-                frame = data.ohlcv(symbol, end - timedelta(days=400), end)
-                if len(frame) >= _MIN_BARS:
-                    recommendations[symbol] = compute_recommendation(frame, symbol)
-            except Exception as exc:
-                log.warning("danhsach: bo qua %s do loi: %s", symbol, exc)
+        recommendations = await asyncio.to_thread(_build_watchlist_recommendations, symbols)
         await message.answer(watchlist_card(symbols, recommendations))
     except Exception as exc:
         log.exception("Lenh /danhsach that bai")

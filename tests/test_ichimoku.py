@@ -61,3 +61,25 @@ def test_chikou_free_true_when_price_higher_than_26_bars_ago():
     frame = pd.DataFrame({"high": close, "low": close, "close": close})
     state = ichimoku_state(frame)
     assert state["chikou_free"] is True
+
+
+def test_kumo_break_bars_none_when_price_inside_kumo():
+    frame = flat_then_jump(base=100.0, jump=None)
+    state = ichimoku_state(frame)
+    assert state["kumo_break_bars"] is None
+
+
+def test_kumo_break_bars_counts_consecutive_sessions_above_kumo():
+    # 10 phien cuoi gia nhay len va GIU NGUYEN tren may -> break_bars = 10-1 = 9.
+    frame = flat_then_jump(base=100.0, jump=500.0, tail=10)
+    state = ichimoku_state(frame)
+    assert state["price_vs_kumo"] == "tren_may"
+    assert state["kumo_break_bars"] == 9
+
+
+def test_kumo_break_bars_small_for_recent_break():
+    # Chi 1 phien cuoi moi vuot may -> break_bars = 0.
+    frame = flat_then_jump(base=100.0, jump=500.0, tail=1)
+    state = ichimoku_state(frame)
+    assert state["price_vs_kumo"] == "tren_may"
+    assert state["kumo_break_bars"] == 0
