@@ -10,7 +10,6 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from ...analysis.screener import (
-    USAGE_EXAMPLE,
     CriteriaParseError,
     parse_criteria,
     preset_accumulate,
@@ -18,7 +17,7 @@ from ...analysis.screener import (
     preset_warning,
     screen_report,
 )
-from ...analysis.snapshot import is_build_in_progress
+from ...analysis.snapshot import is_build_in_progress, load_snapshot
 from ...logging_conf import get_logger
 from ..formatters import error_card, screener_results_card
 from ..keyboards import screener_menu
@@ -41,7 +40,7 @@ _PREPARING_MESSAGE = (
 
 @router.message(Command("loc", "screen"))
 async def cmd_screen(message: Message) -> None:
-    if is_build_in_progress():
+    if is_build_in_progress() and load_snapshot().empty:
         await message.answer(_PREPARING_MESSAGE)
         return
 
@@ -49,11 +48,19 @@ async def cmd_screen(message: Message) -> None:
     custom_args = args[1].strip() if len(args) > 1 else ""
 
     if not custom_args:
-        await message.answer(
-            "Chọn một bộ lọc dựng sẵn bên dưới, hoặc gõ điều kiện tuỳ chỉnh. "
-            f"Ví dụ: <code>{USAGE_EXAMPLE}</code>",
-            reply_markup=screener_menu(),
+        intro_text = (
+            "🔍 <b>BỘ LỌC CỔ PHIẾU TOÀN SÀN</b>\n\n"
+            "Chọn một bộ lọc dựng sẵn bên dưới:\n"
+            "• 🚀 <b>Đột phá:</b> Vượt mây Kumo + MACD cắt lên + Khối lượng nổ (>= 1.5x TB20)\n"
+            "• 📦 <b>Tích luỹ:</b> Nén giá trong mây mỏng + RSI trung tính + Von cạn kiệt\n"
+            "• ⚠️ <b>Cảnh báo:</b> Giá vừa thủng mây Kumo hoặc xuất hiện phân kỳ âm\n\n"
+            "Hoặc gõ điều kiện tuỳ chỉnh, ví dụ:\n"
+            "• <code>/loc san=HOSE kn=MUA</code> (Lọc các mã có khuyến nghị MUA trên HOSE)\n"
+            "• <code>/loc san=HOSE kn=tichluy</code> (Lọc các mã tích luỹ nền giá)\n"
+            "• <code>/loc may=tren kl=1.2</code> (Giá trên mây, khối lượng tăng > 1.2 lần)\n"
+            "• <code>/loc rsi=quaban</code> (RSI rơi vào vùng quá bán để canh bắt đáy)"
         )
+        await message.answer(intro_text, reply_markup=screener_menu())
         return
 
     try:
@@ -77,7 +84,7 @@ async def on_screen_preset(callback: CallbackQuery) -> None:
         await callback.answer()
         return
 
-    if is_build_in_progress():
+    if is_build_in_progress() and load_snapshot().empty:
         await callback.answer("Đang chuẩn bị dữ liệu, thử lại sau vài phút.", show_alert=True)
         return
 

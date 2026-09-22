@@ -13,7 +13,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from ...analysis.screener import today_signals
-from ...analysis.snapshot import is_build_in_progress
+from ...analysis.snapshot import is_build_in_progress, load_snapshot
 from ...logging_conf import get_logger
 from ..formatters import error_card, signals_card
 
@@ -28,7 +28,7 @@ _PREPARING_MESSAGE = (
 
 @router.message(Command("tinhieu", "signals"))
 async def cmd_signals(message: Message) -> None:
-    if is_build_in_progress():
+    if is_build_in_progress() and load_snapshot().empty:
         await message.answer(_PREPARING_MESSAGE)
         return
 

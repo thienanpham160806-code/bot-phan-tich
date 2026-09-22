@@ -219,7 +219,12 @@ def screen_report(criteria: ScreenCriteria) -> ScreenReport:
 
     as_of = snapshot.snapshot_last_updated()
     notes = []
-    if snapshot.is_stale():
+    if snapshot.is_build_in_progress():
+        notes.append(
+            "⏳ Hệ thống đang cập nhật dữ liệu phiên mới ở nền "
+            + (f"(kết quả từ bản tính lúc {as_of:%d/%m/%Y %H:%M})." if as_of else ".")
+        )
+    elif snapshot.is_stale():
         expected = snapshot.last_expected_session()
         notes.append(
             f"⚠️ Dữ liệu chưa được tính cho phiên này (bản gần nhất tính lúc "
@@ -283,7 +288,12 @@ def today_signals(limit: int | None = None) -> SignalReport:
 
     as_of = snapshot.snapshot_last_updated()
     note = None
-    if snapshot.is_stale():
+    if snapshot.is_build_in_progress():
+        note = (
+            "⏳ Hệ thống đang cập nhật dữ liệu phiên mới ở nền "
+            + (f"(kết quả từ bản tính lúc {as_of:%d/%m/%Y %H:%M})." if as_of else ".")
+        )
+    elif snapshot.is_stale():
         expected = snapshot.last_expected_session()
         note = (
             f"⚠️ Dữ liệu chưa được tính cho phiên này (bản gần nhất tính lúc "
@@ -321,7 +331,7 @@ _MACD_ALIASES = {"tang": "golden", "giam": "death"}
 _RSI_ALIASES = {"quamua": "qua_mua", "trungtinh": "trung_tinh", "quaban": "qua_ban"}
 _DIV_ALIASES = {"duong": "bullish", "am": "bearish"}
 
-USAGE_EXAMPLE = "/loc san=HOSE kn=MUA rsi=quaban"
+USAGE_EXAMPLE = "/loc san=HOSE kn=MUA"
 
 
 def _normalize_token(value: str) -> str:

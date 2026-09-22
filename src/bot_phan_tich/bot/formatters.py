@@ -56,40 +56,203 @@ def market_card(symbol: str, close: float, change_pct: float, as_of) -> str:
 
 
 # ------------------------------------------------------------------ /khuyennghi
+_ACTION_META = {
+    "MUA": {
+        "icon": "🟢",
+        "title": "MUA MỚI",
+        "desc": "Tín hiệu tăng giá được cả 3 hệ chỉ báo đồng thuận xác nhận.",
+        "allocation": "Giải ngân 30% – 50% tiền mặt (chia làm 2 lần giải ngân, không all-in)",
+    },
+    "TÍCH LUỸ": {
+        "icon": "🟡",
+        "title": "TÍCH LUỸ / MUA THĂM DÒ",
+        "desc": "Cổ phiếu đang nén nền giá hoặc hồi phục tích luỹ trong vùng an toàn.",
+        "allocation": "Giải ngân 15% – 25% tiền mặt (mua gom từng phần khi giá đỏ quanh hỗ trợ)",
+    },
+    "THEO DÕI": {
+        "icon": "⚪",
+        "title": "THEO DÕI",
+        "desc": "Chưa có tín hiệu vào lệnh an toàn, cơ hội và rủi ro đang ở mức cân bằng.",
+        "allocation": "0% (Ưu tiên giữ tiền mặt, kiên nhẫn chờ tín hiệu bứt phá rõ ràng)",
+    },
+    "GIẢM TỶ TRỌNG": {
+        "icon": "🟠",
+        "title": "GIẢM TỶ TRỌNG",
+        "desc": "Động lượng suy yếu hoặc chạm cản kỹ thuật. Rủi ro điều chỉnh ngắn hạn gia tăng.",
+        "allocation": "Hạ margin, chốt lời 30% – 50% vị thế hiện tại để bảo toàn thành quả",
+    },
+    "BÁN": {
+        "icon": "🔴",
+        "title": "BÁN / THOÁT VỊ THẾ",
+        "desc": "Xu hướng giảm đã xác nhận hoặc giá vi phạm ngưỡng kỹ thuật.",
+        "allocation": "Bán toàn bộ vị thế hoặc cắt lỗ dứt khoát để bảo vệ vốn tối đa",
+    },
+}
+
+_ACTION_EMOJI = {
+    "MUA": "🟢",
+    "TÍCH LUỸ": "🟡",
+    "THEO DÕI": "⚪",
+    "GIẢM TỶ TRỌNG": "🟠",
+    "BÁN": "🔴",
+}
+
+
 def recommendation_card(rec) -> str:
-    """The khuyen nghi - bo cuc CO DINH theo dung 4 khoi yeu cau o muc 11."""
-    lines = [f"<b>{escape(rec.symbol)}</b> — <b>{escape(rec.action)}</b>"]
+    """The khuyen nghi chi tiet, de hieu va truc quan danh cho nha dau tu F0."""
+    meta = _ACTION_META.get(
+        rec.action,
+        {
+            "icon": "📌",
+            "title": rec.action,
+            "desc": "Tín hiệu kỹ thuật hiện tại của cổ phiếu.",
+            "allocation": "Tuân thủ kỷ luật quản trị rủi ro danh mục.",
+        },
+    )
+
+    lines = [
+        f"{meta['icon']} <b>{escape(rec.symbol)}</b> — <b>KHUYẾN NGHỊ: {meta['title']}</b>",
+        f"<i>{meta['desc']}</i>",
+        f"💡 <b>Tỷ trọng gợi ý:</b> {meta['allocation']}",
+    ]
+
     if rec.vetoed_by_kumo:
-        lines.append("<i>(Điểm gốc đủ MUA, nhưng bị Ichimoku phủ quyết vì giá dưới mây Kumo)</i>")
+        lines.append(
+            "⚠️ <b>LƯU Ý ĐẶC BIỆT:</b> Điểm động lượng kỹ thuật đủ MUA, nhưng hệ thống đã "
+            "<b>PHỦ QUYẾT (Kumo Veto)</b> và hạ xuống <b>TÍCH LUỸ</b> do giá nằm dưới mây Kumo. "
+            "Rủi ro kẹp hàng trong xu hướng giảm trung hạn rất lớn!"
+        )
     if rec.confidence != "cao":
-        do_tin_cay = rec.confidence.replace("_", " ")
-        lines.append(f"<i>Độ tin cậy: {escape(do_tin_cay)} (khối lượng thấp)</i>")
-    lines.append("")
+        do_tin_cay = "trung bình" if rec.confidence == "trung_binh" else "thấp"
+        lines.append(
+            f"⚠️ <i>Độ tin cậy: {do_tin_cay} (khối lượng thấp, thiếu xác nhận dòng tiền)</i>"
+        )
 
-    lines.append(f"Giá hiện tại: <b>{price(rec.close)}</b>")
-    lines.append(f"Vùng vào: {price(rec.entry_low)} – {price(rec.entry_high)}")
-    lines.append(f"Cắt lỗ: <b>{price(rec.stop_loss)}</b>")
-    target_line = f"Mục tiêu: <b>{price(rec.target)}</b>"
-    if rec.target_resistance is not None:
-        target_line += f" (kháng cự Ichimoku gần nhất: {price(rec.target_resistance)})"
-    lines.append(target_line)
-    rr = "không có dữ liệu" if rec.risk_reward is None else f"{rec.risk_reward:.1f}R"
-    lines.append(f"Tỷ lệ lợi nhuận/rủi ro: {rr}")
-    lines.append("")
+    lines.extend(
+        [
+            "",
+            "🎯 <b>KẾ HOẠCH GIAO DỊCH (TRADING PLAN)</b>",
+            f"• <b>Giá hiện tại:</b> <b>{price(rec.close)}</b>",
+            f"• <b>Vùng mua an toàn:</b> {price(rec.entry_low)} – {price(rec.entry_high)} "
+            "<i>(Khuyến nghị: Không mua đuổi khi giá vượt vùng này)</i>",
+        ]
+    )
 
-    lines.append("<b>Điểm ba hệ chỉ báo</b>")
-    lines.append(f"  MACD: {rec.component_scores['macd']:+.0f}")
-    lines.append(f"  RSI: {rec.component_scores['rsi']:+.0f}")
-    lines.append(f"  Ichimoku: {rec.component_scores['ichimoku']:+.0f}")
-    lines.append(f"  <b>Điểm tổng: {rec.total_score:+.0f}</b>")
-    lines.append("")
+    if rec.close and rec.stop_loss:
+        sl_pct = (rec.stop_loss / rec.close - 1) * 100
+        sl_text = (
+            f"• <b>Cắt lỗ (Stop Loss):</b> <b>{price(rec.stop_loss)}</b> "
+            f"➔ <i>Rủi ro: {sl_pct:+.1f}% (Nếu thủng mức này, bán dứt khoát bảo toàn vốn)</i>"
+        )
+    else:
+        sl_text = f"• <b>Cắt lỗ:</b> <b>{price(rec.stop_loss)}</b>"
+    lines.append(sl_text)
 
-    lines.append("<b>Lý do</b>")
-    for i, reason in enumerate(rec.reasons, start=1):
-        lines.append(f"  {i}. {escape(reason)}")
-    lines.append("")
+    if rec.close and rec.target:
+        tp_pct = (rec.target / rec.close - 1) * 100
+        res_text = (
+            f" [Kháng cự Kumo: {price(rec.target_resistance)}]"
+            if rec.target_resistance is not None
+            else ""
+        )
+        tp_text = (
+            f"• <b>Mục tiêu (Take Profit):</b> <b>{price(rec.target)}</b> "
+            f"➔ <i>Kỳ vọng lợi nhuận: {tp_pct:+.1f}%{res_text}</i>"
+        )
+    else:
+        tp_text = f"• <b>Mục tiêu:</b> <b>{price(rec.target)}</b>"
+    lines.append(tp_text)
 
-    lines.append(DISCLAIMER)
+    if rec.risk_reward is not None:
+        rr = rec.risk_reward
+        if rr >= 2.0:
+            rr_eval = "Rất hấp dẫn (kỳ vọng lãi gấp đôi rủi ro)"
+        elif rr >= 1.5:
+            rr_eval = "Tốt, đạt chuẩn quản trị rủi ro"
+        else:
+            rr_eval = "Lợi nhuận chưa vượt trội rủi ro, cần cân nhắc kỹ"
+        lines.append(
+            f"• <b>Tỷ lệ Lợi nhuận / Rủi ro (R:R):</b> <b>{rr:.1f} : 1</b> — <i>{rr_eval}</i>"
+        )
+    else:
+        lines.append("• <b>Tỷ lệ Lợi nhuận / Rủi ro:</b> không có dữ liệu")
+
+    if rec.total_score >= 60:
+        mood = "Tích cực mạnh (Xu hướng tăng đồng thuận)"
+    elif rec.total_score >= 20:
+        mood = "Tích cực (Xu hướng tăng đang hình thành)"
+    elif rec.total_score >= -20:
+        mood = "Trung tính (Giằng co, chưa rõ xu hướng)"
+    elif rec.total_score >= -60:
+        mood = "Tiêu cực (Áp lực bán chiếm ưu thế)"
+    else:
+        mood = "Tiêu cực mạnh (Xu hướng giảm chiếm trọn thị trường)"
+
+    lines.extend(
+        [
+            "",
+            f"📊 <b>PHÂN TÍCH 3 HỆ CHỈ BÁO (Điểm tổng: {rec.total_score:+.0f} / 100)</b>",
+            f"<i>Trạng thái kỹ thuật: {mood}</i>",
+        ]
+    )
+
+    # Indicator 1: MACD
+    macd_score = rec.component_scores.get("macd", 0.0)
+    lines.append(f"1️⃣ <b>MACD ({macd_score:+.0f} đ) — Động lượng ngắn hạn:</b>")
+    if rec.reasons and len(rec.reasons) > 0:
+        lines.append(f"   • {escape(rec.reasons[0])}")
+
+    # Indicator 2: RSI
+    rsi_score = rec.component_scores.get("rsi", 0.0)
+    rsi_zone = rec.rsi_state.get("zone")
+    rsi_meaning = ""
+    if rsi_zone == "qua_mua":
+        rsi_meaning = (
+            " ➔ <i>Lực mua quá đà (quá mua), cẩn trọng rung lắc, không mua đuổi!</i>"
+        )
+    elif rsi_zone == "qua_ban":
+        rsi_meaning = (
+            " ➔ <i>Áp lực bán tháo cực đại (quá bán), có thể có nhịp hồi kỹ thuật.</i>"
+        )
+    elif rsi_zone == "trung_tinh":
+        rsi_meaning = " ➔ <i>Vùng cân bằng an toàn, cung cầu ổn định.</i>"
+
+    lines.append(f"2️⃣ <b>RSI ({rsi_score:+.0f} đ) — Áp lực Mua/Bán:</b>")
+    if rec.reasons and len(rec.reasons) > 1:
+        lines.append(f"   • {escape(rec.reasons[1])}{rsi_meaning}")
+
+    # Indicator 3: Ichimoku
+    ichi_score = rec.component_scores.get("ichimoku", 0.0)
+    pos = rec.ichimoku_state.get("price_vs_kumo")
+    if pos == "tren_may":
+        ichi_meaning = (
+            " ➔ <i>Cổ phiếu duy trì Uptrend an toàn, mây Kumo là bệ đỡ hỗ trợ phía dưới.</i>"
+        )
+    elif pos == "trong_may":
+        ichi_meaning = " ➔ <i>Cổ phiếu đi ngang giằng co (Sideway), biến động khó lường.</i>"
+    elif pos == "duoi_may":
+        ichi_meaning = (
+            " ➔ <i>Cổ phiếu trong Downtrend rủi ro cao, mây Kumo là rào cản kháng cự phía trên.</i>"
+        )
+    else:
+        ichi_meaning = ""
+
+    lines.append(f"3️⃣ <b>Ichimoku ({ichi_score:+.0f} đ) — Xu hướng trung hạn & Hỗ trợ/Kháng cự:</b>")
+    if rec.reasons and len(rec.reasons) > 2:
+        lines.append(f"   • {escape(rec.reasons[2])}{ichi_meaning}")
+
+    # F0 Golden rules
+    lines.extend(
+        [
+            "",
+            "💡 <b>LỜI KHUYÊN CHO NHÀ ĐẦU TƯ F0:</b>",
+            "• <b>Kỷ luật cắt lỗ:</b> Luôn tuân thủ mức cắt lỗ, không gồng lỗ khi gãy hỗ trợ.",
+            "• <b>Không mua đuổi:</b> Nếu giá đã vượt vùng an toàn, hãy kiên nhẫn chờ nhịp chỉnh.",
+            "• <b>Chia nhỏ lệnh:</b> Mua 2-3 đợt (thăm dò trước, gia tăng khi đúng xu hướng).",
+            "",
+            DISCLAIMER,
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -188,14 +351,31 @@ def lookup_card(profile) -> str:
 # ----------------------------------------------------------------------- /loc
 def screener_results_card(results, note: str | None = None, limit: int = 15) -> str:
     if not results:
-        header = "<b>Không tìm thấy mã nào khớp điều kiện.</b>"
-        return header if not note else f"{header}\n\n<i>{escape(note)}</i>"
+        lines = [
+            "🔍 <b>Không tìm thấy mã nào khớp điều kiện lọc hiện tại.</b>",
+            "",
+            "💡 <b>Lý do thường gặp:</b>",
+            "• Thị trường chung đang đi ngang/điều chỉnh, ít cổ phiếu bùng nổ đồng thời.",
+            "• Tiêu chí lọc quá khắt khe (ví dụ: vừa yêu cầu MUA vừa đòi hỏi RSI Quá bán).",
+            "",
+            "👉 <b>Gợi ý cho bạn:</b>",
+            "• Thử bộ lọc 📦 <b>Tích luỹ</b> để tìm các cổ phiếu đang nén nền giá chờ tăng.",
+            "• Xem tín hiệu tổng quát toàn thị trường bằng lệnh <code>/tinhieu</code>.",
+            "• Thử lệnh lọc: <code>/loc san=HOSE kn=MUA</code> hoặc <code>/loc may=tren</code>",
+        ]
+        if note:
+            lines.append("")
+            lines.append(f"<i>{escape(note)}</i>")
+        lines.append("")
+        lines.append(DISCLAIMER)
+        return "\n".join(lines)
 
-    lines = [f"<b>Kết quả lọc</b> ({len(results)} mã)", ""]
+    lines = [f"🔍 <b>Kết quả lọc cổ phiếu</b> ({len(results)} mã phù hợp)", ""]
     for r in results[:limit]:
+        emoji = _ACTION_EMOJI.get(r.action, "📌")
         lines.append(
-            f"<b>{escape(r.symbol)}</b>  {escape(r.action)}  "
-            f"điểm {r.total_score:+.0f}  giá {price(r.close)}"
+            f"{emoji} <b>{escape(r.symbol)}</b> — <b>{escape(r.action)}</b>  "
+            f"| Điểm: <b>{r.total_score:+.0f}</b>  | Giá: <b>{price(r.close)}</b>"
         )
     if len(results) > limit:
         lines.append(f"<i>... và {len(results) - limit} mã khác</i>")
@@ -215,25 +395,27 @@ def signals_card(report, limit: int = 15) -> str:
         header = "<b>Chưa có dữ liệu tín hiệu.</b>"
         return header if not report.note else f"{header}\n\n<i>{escape(report.note)}</i>"
 
-    lines = [f"<b>Tín hiệu phiên {report.as_of:%d/%m/%Y %H:%M}</b>", ""]
+    lines = [f"📊 <b>Tín hiệu kỹ thuật phiên {report.as_of:%d/%m/%Y %H:%M}</b>", ""]
 
-    lines.append(f"<b>📈 MUA / TÍCH LUỸ</b> ({len(report.buy)} mã)")
+    lines.append(f"<b>📈 TÍN HIỆU TÍCH CỰC (MUA / TÍCH LUỸ)</b> ({len(report.buy)} mã)")
     if not report.buy:
-        lines.append("  <i>Không có mã nào</i>")
+        lines.append("  <i>Không có mã nào thoả mãn</i>")
     for r in report.buy[:limit]:
+        emoji = _ACTION_EMOJI.get(r.action, "🟢")
         lines.append(
-            f"  <b>{escape(r.symbol)}</b>  {escape(r.action)}  "
-            f"điểm {r.total_score:+.0f}  giá {price(r.close)}"
+            f"  {emoji} <b>{escape(r.symbol)}</b> — {escape(r.action)}  "
+            f"| Điểm: <b>{r.total_score:+.0f}</b>  | Giá: <b>{price(r.close)}</b>"
         )
 
     lines.append("")
-    lines.append(f"<b>📉 BÁN / GIẢM TỶ TRỌNG</b> ({len(report.sell)} mã)")
+    lines.append(f"<b>📉 TÍN HIỆU THẬN TRỌNG (BÁN / GIẢM TỶ TRỌNG)</b> ({len(report.sell)} mã)")
     if not report.sell:
-        lines.append("  <i>Không có mã nào</i>")
+        lines.append("  <i>Không có mã nào thoả mãn</i>")
     for r in report.sell[:limit]:
+        emoji = _ACTION_EMOJI.get(r.action, "🔴")
         lines.append(
-            f"  <b>{escape(r.symbol)}</b>  {escape(r.action)}  "
-            f"điểm {r.total_score:+.0f}  giá {price(r.close)}"
+            f"  {emoji} <b>{escape(r.symbol)}</b> — {escape(r.action)}  "
+            f"| Điểm: <b>{r.total_score:+.0f}</b>  | Giá: <b>{price(r.close)}</b>"
         )
 
     if report.note:
