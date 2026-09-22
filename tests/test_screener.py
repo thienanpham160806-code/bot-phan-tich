@@ -194,6 +194,33 @@ def test_filters_by_min_roe_when_column_present(isolated_snapshot):
     assert symbols == {"HIGH_ROE"}
 
 
+def test_today_signals_groups_buy_and_sell_correctly(isolated_snapshot):
+    rows = [
+        _row("BUY1", action=ACTION_BUY, total_score=80.0),
+        _row("ACC1", action=screener_mod.ACTION_ACCUMULATE, total_score=30.0),
+        _row("WATCH1", action=ACTION_WATCH, total_score=0.0),
+        _row("REDUCE1", action=screener_mod.ACTION_REDUCE, total_score=-40.0),
+        _row("SELL1", action=ACTION_SELL, total_score=-80.0),
+    ]
+    _write_snapshot(rows)
+
+    report = screener_mod.today_signals()
+    assert {r.symbol for r in report.buy} == {"BUY1", "ACC1"}
+    assert {r.symbol for r in report.sell} == {"REDUCE1", "SELL1"}
+    # mua sap xep diem cao truoc, ban sap xep te nhat (diem am nhieu nhat) truoc
+    assert [r.symbol for r in report.buy] == ["BUY1", "ACC1"]
+    assert [r.symbol for r in report.sell] == ["SELL1", "REDUCE1"]
+    assert report.as_of is not None
+
+
+def test_today_signals_missing_snapshot_gives_clear_note(isolated_snapshot):
+    report = screener_mod.today_signals()
+    assert report.buy == []
+    assert report.sell == []
+    assert report.note is not None
+    assert "build_snapshot" in report.note
+
+
 def test_pe_filter_gracefully_skipped_when_fundamentals_missing(isolated_snapshot):
     """Chua chay backfill_fundamentals.py -> khong co cot pe/roe trong snapshot.
     Dieu kien pe/roe phai duoc BO QUA (khong loai het ket qua), kem ghi chu ro."""

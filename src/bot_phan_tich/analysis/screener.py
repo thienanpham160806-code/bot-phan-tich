@@ -184,6 +184,25 @@ def _row_reasons(row: pd.Series) -> list[str]:
     return [] if value is None else list(value)
 
 
+def _to_results(frame: pd.DataFrame) -> list[ScreenResult]:
+    return [
+        ScreenResult(
+            symbol=row["symbol"],
+            exchange=row.get("exchange"),
+            action=row["action"],
+            total_score=float(row["total_score"]),
+            close=float(row["close"]),
+            component_scores={
+                "macd": row.get("score_macd"),
+                "rsi": row.get("score_rsi"),
+                "ichimoku": row.get("score_ichimoku"),
+            },
+            reasons=_row_reasons(row),
+        )
+        for _, row in frame.iterrows()
+    ]
+
+
 def screen_report(criteria: ScreenCriteria) -> ScreenReport:
     """Loc snapshot theo `criteria`. KHONG goi mang, KHONG tinh chi bao."""
     frame = snapshot.load_snapshot()
@@ -227,28 +246,62 @@ def screen_report(criteria: ScreenCriteria) -> ScreenReport:
     limit = get_settings().get("screener.max_results", 15)
     matched = matched.head(limit)
 
-    results = [
-        ScreenResult(
-            symbol=row["symbol"],
-            exchange=row.get("exchange"),
-            action=row["action"],
-            total_score=float(row["total_score"]),
-            close=float(row["close"]),
-            component_scores={
-                "macd": row.get("score_macd"),
-                "rsi": row.get("score_rsi"),
-                "ichimoku": row.get("score_ichimoku"),
-            },
-            reasons=_row_reasons(row),
-        )
-        for _, row in matched.iterrows()
-    ]
+    results = _to_results(matched)
     return ScreenReport(results=results, total_universe=len(frame), as_of=as_of, note=note)
 
 
 def screen(criteria: ScreenCriteria) -> list[ScreenResult]:
     """Loc co phieu theo `criteria`. Xem screen_report() de lay them ghi chu."""
     return screen_report(criteria).results
+
+
+@dataclass
+class SignalReport:
+    """Ket qua /tinhieu: tin hieu MUA/TICH LUY va BAN/GIAM TY TRONG cua phien
+    gan nhat, doc thang tu snapshot - khong loc theo dieu kien nao them."""
+
+    buy: list[ScreenResult]
+    sell: list[ScreenResult]
+    as_of: datetime | None
+    note: str | None = field(default=None)
+
+
+def today_signals(limit: int | None = None) -> SignalReport:
+    """Yeu cau con thieu cua de: liet ke tin hieu MUA/TICH LUY va BAN/GIAM
+    TY TRONG cua phien gan nhat (xem /tinhieu, bot/handlers/signals.py).
+    CHI DOC snapshot, cung nguyen tac voi screen_report() - khong tinh lai.
+    """
+    frame = snapshot.load_snapshot()
+    if frame.empty:
+        return SignalReport(
+            buy=[], sell=[], as_of=None,
+            note=(
+                "Dữ liệu chưa được tính cho phiên này. Chạy "
+                "`python scripts/build_snapshot.py` (sau khi đã backfill_data.py) trước."
+            ),
+        )
+
+    as_of = snapshot.snapshot_last_updated()
+    note = None
+    if snapshot.is_stale():
+        expected = snapshot.last_expected_session()
+        note = (
+            f"⚠️ Dữ liệu chưa được tính cho phiên này (bản gần nhất tính lúc "
+            f"{as_of:%d/%m/%Y %H:%M} — nếu bạn đang xem sau phiên {expected:%d/%m/%Y}, "
+            "kết quả có thể cũ)."
+        )
+
+    limit = limit or get_settings().get("screener.max_results", 15)
+
+    buy_frame = frame[frame["action"].isin([ACTION_BUY, ACTION_ACCUMULATE])]
+    buy_frame = buy_frame.sort_values("total_score", ascending=False).head(limit)
+
+    sell_frame = frame[frame["action"].isin([ACTION_SELL, ACTION_REDUCE])]
+    sell_frame = sell_frame.sort_values("total_score", ascending=True).head(limit)
+
+    return SignalReport(
+        buy=_to_results(buy_frame), sell=_to_results(sell_frame), as_of=as_of, note=note
+    )
 
 
 # --------------------------------------------------------- loc tuy chinh (/loc <dieu kien>)

@@ -207,6 +207,43 @@ def screener_results_card(results, note: str | None = None, limit: int = 15) -> 
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------------- /tinhieu
+def signals_card(report, limit: int = 15) -> str:
+    """The /tinhieu: tin hieu MUA/TICH LUY va BAN/GIAM TY TRONG cua phien gan
+    nhat, kem ro phien nao (as_of) de nguoi dung biet du lieu cu hay moi."""
+    if report.as_of is None:
+        header = "<b>Chưa có dữ liệu tín hiệu.</b>"
+        return header if not report.note else f"{header}\n\n<i>{escape(report.note)}</i>"
+
+    lines = [f"<b>Tín hiệu phiên {report.as_of:%d/%m/%Y %H:%M}</b>", ""]
+
+    lines.append(f"<b>📈 MUA / TÍCH LUỸ</b> ({len(report.buy)} mã)")
+    if not report.buy:
+        lines.append("  <i>Không có mã nào</i>")
+    for r in report.buy[:limit]:
+        lines.append(
+            f"  <b>{escape(r.symbol)}</b>  {escape(r.action)}  "
+            f"điểm {r.total_score:+.0f}  giá {price(r.close)}"
+        )
+
+    lines.append("")
+    lines.append(f"<b>📉 BÁN / GIẢM TỶ TRỌNG</b> ({len(report.sell)} mã)")
+    if not report.sell:
+        lines.append("  <i>Không có mã nào</i>")
+    for r in report.sell[:limit]:
+        lines.append(
+            f"  <b>{escape(r.symbol)}</b>  {escape(r.action)}  "
+            f"điểm {r.total_score:+.0f}  giá {price(r.close)}"
+        )
+
+    if report.note:
+        lines.append("")
+        lines.append(f"<i>{escape(report.note)}</i>")
+    lines.append("")
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------------- /danhsach
 def watchlist_card(symbols: list[str], recommendations: dict) -> str:
     if not symbols:
