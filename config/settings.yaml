@@ -92,9 +92,10 @@ fundamentals:
   request_delay_seconds: 3.0   # gian cach giua cac ma, tranh cham rate limit nguon
 
 realtime:
-  # Chua co API key tai thoi diem viet (xem docs/lay-api.md). Khi enabled la
-  # false, data/realtime.py.get_realtime_provider() luon tra NullRealtimeProvider
-  # va toan bo bot chay binh thuong bang du lieu cuoi phien qua data/router.py.
+  # Chua co API key tai thoi diem viet (xem README.md, muc "Cau hinh nguon
+  # du lieu"). Khi enabled la false, data/realtime.py.get_realtime_provider()
+  # luon tra NullRealtimeProvider va toan bo bot chay binh thuong bang du
+  # lieu cuoi phien qua data/router.py.
   enabled: false
   provider: dnse
   fallback: vietcap

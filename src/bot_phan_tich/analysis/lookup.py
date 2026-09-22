@@ -212,7 +212,7 @@ def _fill_industry_median(profile: CompanyProfile, router: DataRouter) -> None:
             getattr(profile, key).industry_median = float(pd.Series(values).median())
 
 
-_NEWS_WINDOW_DAYS = 180  # 6 thang - xem docs/lay-api.md ve gioi han cua nguon
+_NEWS_WINDOW_DAYS = 180  # 6 thang gan nhat
 _NEWS_MAX_ITEMS = 8
 
 

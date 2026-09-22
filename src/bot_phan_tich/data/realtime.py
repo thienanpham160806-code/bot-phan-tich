@@ -1,8 +1,8 @@
 """Giao dien du lieu realtime - CHI KHAI BAO, CHUA CAI.
 
 Nhom chua co API key/secret cua DNSE (EntradeX) tai thoi diem viet module
-nay. Xem docs/lay-api.md muc 1 de biet cach lay, va docs/prompt-claude-code.md
-muc 6 cho yeu cau cua phan nay.
+nay. Xem README.md, muc "Cau hinh nguon du lieu (DNSE / Vietcap)" de biet
+cach lay API key.
 
 RANG BUOC TUYET DOI: khi `realtime.enabled: false` (mac dinh trong
 config/settings.yaml), toan bo bot phai chay binh thuong bang du lieu cuoi
@@ -12,13 +12,13 @@ hoac kiem tra `enabled` truoc.
 
 Khi co API key, nguoi lam tiep chi can:
   1. Dien _connect()/_subscribe_impl()/... trong DnseRealtimeProvider theo
-     tai lieu WebSocket/MQTT thuc te cua DNSE (docs/lay-api.md muc 1.5:
-     realtime di qua WebSocket/MQTT, khong phai REST).
+     tai lieu WebSocket/MQTT thuc te cua DNSE (realtime di qua WebSocket/MQTT,
+     khong phai REST - khac voi data/dnse.py hien tai chi dung REST).
   2. KHONG doi RealtimeProvider (giao dien) neu khong can thiet - phan con
      lai cua bot (bot/handlers/, alerts/) chi goi qua giao dien nay.
-  3. Neu Vietcap cung khong co API cong khai (xem docs/lay-api.md muc 2.1),
-     VietcapRealtimeProvider co the se phai di duong khac (vd polling gia cuoi
-     phien) thay vi socket - ghi lai quyet dinh do vao chinh file nay khi cai.
+  3. Neu Vietcap cung khong co API cong khai, VietcapRealtimeProvider co
+     the se phai di duong khac (vd polling gia cuoi phien) thay vi socket -
+     ghi lai quyet dinh do vao chinh file nay khi cai.
 """
 from __future__ import annotations
 
@@ -65,13 +65,14 @@ class RealtimeProvider(ABC):
 class DnseRealtimeProvider(RealtimeProvider):
     """Nguon realtime chinh (DNSE) - STUB, CHUA CAI.
 
-    Can API key/secret tu EntradeX (xem docs/lay-api.md muc 1.2). DNSE dung
-    WebSocket/MQTT cho du lieu realtime, khac voi REST dung cho lich su OHLC
-    (data/dnse.py). Gioi han tai lieu ghi toi da 2.000 ma dong thoi.
+    Can API key/secret tu EntradeX (xem README.md, muc "Cau hinh nguon du
+    lieu"). DNSE dung WebSocket/MQTT cho du lieu realtime, khac voi REST dung
+    cho lich su OHLC (data/dnse.py). Gioi han tai lieu ghi toi da 2.000 ma
+    dong thoi.
 
     TODO (khi co API key): cai dat ket noi WebSocket/MQTT thuc te. KHONG bia
     URL hay ten topic - phai lay tu tai lieu chinh thuc hoac hoi CSKH DNSE
-    (hotline/email trong docs/lay-api.md muc 1.3).
+    (hotline 024 7108 9234 / hello@dnse.com.vn).
     """
 
     name = "dnse"
@@ -79,8 +80,7 @@ class DnseRealtimeProvider(RealtimeProvider):
     def subscribe(self, symbols: list[str]) -> None:
         raise NotImplementedError(
             "Realtime DNSE chua duoc cai. Can DNSE_API_KEY/DNSE_API_SECRET tu "
-            "EntradeX (LightSpeed API) va ket noi WebSocket/MQTT - xem "
-            "docs/lay-api.md muc 1."
+            "EntradeX (LightSpeed API) va ket noi WebSocket/MQTT - xem README.md."
         )
 
     def unsubscribe(self, symbols: list[str]) -> None:
@@ -96,10 +96,10 @@ class DnseRealtimeProvider(RealtimeProvider):
 class VietcapRealtimeProvider(RealtimeProvider):
     """Nguon realtime du phong (Vietcap) - STUB, CHUA CAI.
 
-    Vietcap khong co cong dang ky API cong khai cho ca nhan (docs/lay-api.md
-    muc 2.1). Neu can, nguon du phong nhieu kha nang phai di duong khac voi
-    DNSE (vi du polling gia cuoi phien qua vnstock/VCI thay vi socket thuc
-    su) - quyet dinh cu the de lai cho luc co du kien de kiem tra thuc te.
+    Vietcap khong co cong dang ky API cong khai cho ca nhan. Neu can, nguon
+    du phong nhieu kha nang phai di duong khac voi DNSE (vi du polling gia
+    cuoi phien qua vnstock/VCI thay vi socket thuc su) - quyet dinh cu the
+    de lai cho luc co du kien de kiem tra thuc te.
 
     TODO (khi co huong di ro rang): cai dat theo huong da chon, ghi lai ly do
     ngay trong docstring nay.
@@ -110,7 +110,7 @@ class VietcapRealtimeProvider(RealtimeProvider):
     def subscribe(self, symbols: list[str]) -> None:
         raise NotImplementedError(
             "Realtime Vietcap chua duoc cai. Vietcap khong co API cong khai "
-            "cho ca nhan - xem docs/lay-api.md muc 2 truoc khi lam tiep."
+            "cho ca nhan."
         )
 
     def unsubscribe(self, symbols: list[str]) -> None:

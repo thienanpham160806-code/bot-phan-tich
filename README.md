@@ -6,9 +6,9 @@ Telegram Bot phân tích kỹ thuật chứng khoán Việt Nam — hợp lưu b
 Nguồn dữ liệu: **DNSE OpenAPI** (giá cuối phiên, danh sách mã — nguồn chính,
 đã test sống) và **Vietcap/VCI** qua `vnstock` (báo cáo tài chính, danh sách
 mã, ngành — nguồn dự phòng). Realtime (WebSocket/MQTT streaming) là tính
-năng **riêng, chưa cài** (`data/realtime.py` mới có giao diện + stub) —
-xem [`docs/lay-api.md`](docs/lay-api.md); bot chạy đầy đủ bằng dữ liệu cuối
-phiên trong lúc chờ.
+năng **riêng, chưa cài** (`data/realtime.py` mới có giao diện + stub) — xem
+mục [Cấu hình nguồn dữ liệu](#cấu-hình-nguồn-dữ-liệu-dnse--vietcap) bên
+dưới; bot chạy đầy đủ bằng dữ liệu cuối phiên trong lúc chờ.
 
 ---
 
@@ -65,18 +65,40 @@ Mở `.env` và điền:
 | Biến | Lấy ở đâu |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Chat với [@BotFather](https://t.me/BotFather) trên Telegram, lệnh `/newbot` |
-| `DNSE_API_KEY`, `DNSE_API_SECRET` | Đăng ký ứng dụng tại <https://developers.dnse.com.vn> (xem `docs/lay-api.md`) |
+| `DNSE_API_KEY`, `DNSE_API_SECRET` | EntradeX → mục LightSpeed API (xem hướng dẫn bên dưới) |
 | `VNSTOCK_ACCEPT_TOS` | Đặt `1` sau khi chạy `register_user()` của vnstock một lần |
 
 > **Không bao giờ** commit file `.env`. File này đã nằm trong `.gitignore`
-> (chỉ `.env.example` — bản mẫu rỗng — mới được commit).
->
-> `pip install openapi-sdk` (theo docs của DNSE) **không cài được** — tên gói
-> đó chỉ là ví dụ trong docs, không phải tên thật trên PyPI. Tên gói PyPI
-> thật là `dnse-sdk-openapi` (đã có sẵn trong `requirements.txt`, không cần
-> cài riêng). Chưa có `DNSE_API_KEY`/`DNSE_API_SECRET` cũng không sao —
-> `data/router.py` tự động dùng nguồn dự phòng (Vietcap/VCI qua `vnstock`,
-> không cần API key) nên bot vẫn chạy được đầy đủ phần dữ liệu cuối phiên.
+> (chỉ `.env.example` — bản mẫu rỗng — mới được commit). Chưa có
+> `DNSE_API_KEY`/`DNSE_API_SECRET` cũng không sao — `data/router.py` tự động
+> dùng nguồn dự phòng (Vietcap/VCI qua `vnstock`, không cần API key) nên bot
+> vẫn chạy được đầy đủ phần dữ liệu cuối phiên trong lúc chờ.
+
+### Cấu hình nguồn dữ liệu (DNSE / Vietcap)
+
+**DNSE (nguồn chính, cần tài khoản chứng khoán DNSE dạng `064Cxxxxxx`):**
+
+1. Mở tài khoản online tại <https://www.dnse.com.vn> (eKYC bằng CCCD gắn
+   chip), không cần nạp tiền để dùng phần dữ liệu thị trường.
+2. Đăng nhập **EntradeX** (<https://banggia.dnse.com.vn> hoặc app EntradeX)
+   → mục **LightSpeed API** trong cài đặt tài khoản → tạo khoá.
+3. **API secret chỉ hiện đúng một lần** — copy ngay vào `.env`, lỡ mất phải
+   tạo khoá mới. Không thấy mục LightSpeed API thì liên hệ DNSE (hotline
+   024 7108 9234 / hello@dnse.com.vn), cung cấp số tài khoản 064C + họ tên.
+4. `pip install openapi-sdk` (theo docs của DNSE) **không cài được** — tên
+   gói đó chỉ là ví dụ trong docs, không phải tên thật trên PyPI. Tên gói
+   PyPI thật là `dnse-sdk-openapi` (đã có sẵn trong `requirements.txt`,
+   không cần cài riêng — xem `data/dnse.py`).
+
+**Vietcap (nguồn dự phòng, không cần API key):** qua thư viện `vnstock`
+(`pip install -U vnstock`, chạy `register_user()` một lần, đặt
+`VNSTOCK_ACCEPT_TOS=1`). Có giới hạn tần suất (~20 lượt/phút bản miễn phí)
+nên mọi nơi trong bot đều gọi qua `data/router.py` (đã có cache), không gọi
+thẳng vnstock trong handler.
+
+> Lỡ commit lộ `DNSE_API_KEY`/`DNSE_API_SECRET` lên Git: vào EntradeX **tạo
+> khoá mới ngay** (khoá cũ coi như đã lộ) rồi mới dọn lịch sử commit — đổi
+> khoá trước, dọn git sau.
 
 ---
 
@@ -138,7 +160,7 @@ Mỗi lệnh có cả bí danh tiếng Việt và tiếng Anh.
 Dự án dùng cho mục đích học tập. Lưu ý điều khoản của một số thư viện:
 
 - `vnstock` — giấy phép tuỳ chỉnh, miễn phí cho mục đích cá nhân, dùng thương mại cần xin phép tác giả.
-- DNSE LightSpeed API — có ràng buộc về việc phân phối lại dữ liệu (xem `docs/lay-api.md`).
+- DNSE LightSpeed API — có ràng buộc về việc phân phối lại dữ liệu, đọc kỹ điều khoản dịch vụ trước khi public repo.
 
 ---
 

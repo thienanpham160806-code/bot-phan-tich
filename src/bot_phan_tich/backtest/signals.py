@@ -2,9 +2,8 @@
 
 Giai quyet van de: backtest/engine.py:run() chi biet CHAY tren mot DataFrame
 tin hieu (symbol, time, stop_loss, target) co san - no khong tu sinh tin
-hieu. Truoc day tin hieu lich su duoc sinh tu mau hinh VCP (chien luoc cu,
-da bo - xem scripts/train_model.py cu). Gio tin hieu MUA duoc sinh bang cach
-quet lai analysis/scoring.recommend() tren TUNG PHIEN trong qua khu.
+hieu. Tin hieu MUA duoc sinh bang cach quet lai analysis/scoring.recommend()
+tren TUNG PHIEN trong qua khu.
 
 Chong nhin truoc tuong lai (look-ahead bias): tai moi buoc quet o phien i,
 CHI dua vao frame.iloc[: i + 1] - giong het du lieu ma nguoi giao dich thuc
