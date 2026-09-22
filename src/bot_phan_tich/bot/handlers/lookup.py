@@ -10,6 +10,7 @@ from aiogram.types import Message
 from ...analysis.lookup import lookup
 from ...logging_conf import get_logger
 from ..formatters import error_card, lookup_card, run_with_notice
+from ..keyboards import symbol_actions
 from .common import parse_symbol
 
 log = get_logger(__name__)
@@ -20,7 +21,7 @@ router = Router(name="lookup")
 async def cmd_lookup(message: Message) -> None:
     symbol = parse_symbol(message)
     if not symbol:
-        await message.answer("Cú pháp: <code>/tracuu FPT</code>")
+        await message.answer("Cú pháp: <code>/info FPT</code> (hoặc <code>/tracuu FPT</code>)")
         return
 
     async def work() -> str:
@@ -31,4 +32,4 @@ async def cmd_lookup(message: Message) -> None:
             log.exception("Lenh /tracuu that bai cho %s", symbol)
             return error_card(str(exc))
 
-    await run_with_notice(message, work)
+    await run_with_notice(message, work, reply_markup=symbol_actions(symbol))

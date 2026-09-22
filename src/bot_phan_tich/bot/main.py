@@ -7,21 +7,23 @@ mot ma khong ton tai hay mot loi mang.
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import Message, TelegramObject
+from aiogram.types import BotCommand, Message, TelegramObject
 
 from ..alerts.eod import run_eod_scan
 from ..analysis.snapshot import build_snapshot, ensure_fresh_in_background
 from ..config import get_secrets
 from ..data import market_store
-from ..data.cache import init_db
+from ..data.cache import get_news_subscribers, init_db, save_macro_news_items
+from ..data.macro_news import fetch_all_macro_news
 from ..logging_conf import get_logger, setup_logging
-from .formatters import error_card
+from .formatters import error_card, macro_news_card
 from .handlers import ROUTERS
 from .scheduler import build_scheduler
 
@@ -82,6 +84,33 @@ async def daily_scan_job(bot: Bot) -> None:
             log.warning("Khong gui duoc canh bao cho chat %s: %s", alert.chat_id, exc)
 
 
+async def hourly_news_job(bot: Bot) -> None:
+    """Tong hop tin tuc vi mo, phap luat va phat song moi gio cho nguoi dung."""
+    try:
+        raw_items = await asyncio.to_thread(fetch_all_macro_news)
+        dict_items = [it.to_dict() for it in raw_items]
+        new_items = await asyncio.to_thread(save_macro_news_items, dict_items)
+        log.info(
+            "hourly_news_job: quet %d tin tu RSS, phat hien %d tin moi",
+            len(dict_items),
+            len(new_items),
+        )
+
+        subscribers = await asyncio.to_thread(get_news_subscribers)
+        if not subscribers or not new_items:
+            return
+
+        # Lay toi da 5 tin moi nhat vua phat hien
+        notice_card = macro_news_card(new_items[:5], title_suffix="1 Giờ Qua")
+        for chat_id in subscribers:
+            try:
+                await bot.send_message(chat_id, notice_card)
+            except Exception as exc:
+                log.warning("Khong gui duoc ban tin cho chat %s: %s", chat_id, exc)
+    except Exception:
+        log.exception("hourly_news_job that bai")
+
+
 async def run() -> None:
     setup_logging()
     init_db()
@@ -102,7 +131,10 @@ async def run() -> None:
     for router in ROUTERS:
         dispatcher.include_router(router)
 
-    scheduler = build_scheduler(lambda: daily_scan_job(bot))
+    scheduler = build_scheduler(
+        lambda: daily_scan_job(bot),
+        lambda: hourly_news_job(bot),
+    )
     scheduler.start()
 
     # Neu snapshot thieu/cu luc khoi dong: cap nhat o NEN, khong cho bot
@@ -110,12 +142,63 @@ async def run() -> None:
     # luc nay (xem analysis/snapshot.py:is_build_in_progress()).
     asyncio.create_task(ensure_fresh_in_background())
 
+    try:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="kn", description="Khuyến nghị & kế hoạch giá (VD: /kn FPT)"),
+                BotCommand(command="chart", description="Biểu đồ nến kỹ thuật (VD: /chart SSI)"),
+                BotCommand(command="info", description="Hồ sơ & định giá P/E, P/B (VD: /info VNM)"),
+                BotCommand(command="fin", description="Đọc BCTC & rủi ro nợ vay (VD: /fin HPG)"),
+                BotCommand(command="loc", description="Bộ lọc cổ phiếu toàn sàn (Breakout, Nền)"),
+                BotCommand(command="tinhieu", description="Tín hiệu MUA / BÁN phiên gần nhất"),
+                BotCommand(command="market", description="Trạng thái chỉ số thị trường VN-Index"),
+                BotCommand(command="tintuc", description="Bản tin thị trường & nghị định/luật"),
+                BotCommand(command="sub", description="Thêm vào danh mục theo dõi (VD: /sub FPT)"),
+                BotCommand(command="watchlist", description="Xem danh sách cổ phiếu theo dõi"),
+                BotCommand(command="canhbao", description="Bật/tắt cảnh báo tự động cuối phiên"),
+                BotCommand(command="help", description="Hướng dẫn sử dụng chi tiết"),
+            ]
+        )
+    except Exception as exc:
+        log.warning("Khong the cai dat bot commands menu: %s", exc)
+
     log.info("Bot bat dau chay")
+
+    # Chi dung khi deploy nhu MOT WEB SERVICE (vd Railway mac dinh, hoac neu
+    # lo cau hinh Render la "web" thay vi "worker" - xem README.md muc 7.3).
+    # render.yaml chinh thuc cua repo nay khai bao "type: worker" (Background
+    # Worker) - loai do KHONG bi Render quet port nen bien PORT se khong duoc
+    # dat va khoi nay tu bo qua, hoan toan vo hai.
+    port_str = os.getenv("PORT")
+    web_runner = None
+    if port_str:
+        try:
+            from aiohttp import web
+
+            app = web.Application()
+
+            async def _health_handler(_request: web.Request) -> web.Response:
+                return web.Response(text="Bot is running!")
+
+            app.router.add_get("/", _health_handler)
+            app.router.add_get("/healthz", _health_handler)
+
+            web_runner = web.AppRunner(app)
+            await web_runner.setup()
+            site = web.TCPSite(web_runner, "0.0.0.0", int(port_str))
+            await site.start()
+            log.info("Da khoi dong health check server tai port %s (Render/Cloud)", port_str)
+        except Exception as exc:
+            log.warning("Khong the khoi dong health check tren port %s: %s", port_str, exc)
+
     try:
         await dispatcher.start_polling(bot)
     finally:
+        if web_runner:
+            await web_runner.cleanup()
         scheduler.shutdown(wait=False)
         await bot.session.close()
+
 
 
 def main() -> None:

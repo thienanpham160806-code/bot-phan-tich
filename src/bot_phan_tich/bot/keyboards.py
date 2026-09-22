@@ -12,8 +12,10 @@ from aiogram.types import (
 def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="/market"), KeyboardButton(text="/danhsach")],
-            [KeyboardButton(text="/loc"), KeyboardButton(text="/help")],
+            [KeyboardButton(text="/loc"), KeyboardButton(text="/tinhieu")],
+            [KeyboardButton(text="/market"), KeyboardButton(text="/tintuc")],
+            [KeyboardButton(text="/watchlist"), KeyboardButton(text="/canhbao")],
+            [KeyboardButton(text="/help")],
         ],
         resize_keyboard=True,
     )

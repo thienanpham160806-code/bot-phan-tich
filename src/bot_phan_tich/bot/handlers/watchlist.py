@@ -25,7 +25,7 @@ _MIN_BARS = 60
 async def cmd_sub(message: Message) -> None:
     symbol = parse_symbol(message)
     if not symbol:
-        await message.answer("Cú pháp: <code>/theodoi FPT</code>")
+        await message.answer("Cú pháp: <code>/sub FPT</code> (hoặc <code>/theodoi FPT</code>)")
         return
     try:
         watchlist_store.add(message.chat.id, symbol)
@@ -39,7 +39,7 @@ async def cmd_sub(message: Message) -> None:
 async def cmd_unsub(message: Message) -> None:
     symbol = parse_symbol(message)
     if not symbol:
-        await message.answer("Cú pháp: <code>/bosach FPT</code>")
+        await message.answer("Cú pháp: <code>/unsub FPT</code> (hoặc <code>/bosach FPT</code>)")
         return
     try:
         watchlist_store.remove(message.chat.id, symbol)

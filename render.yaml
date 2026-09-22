@@ -1,0 +1,15 @@
+# type: worker (KHONG PHAI "web") - bot nay dung Telegram long-polling
+# (dispatcher.start_polling()), khong mo port HTTP nao ca. "web" se bi
+# Render quet port va TIMEOUT sau vai phut (xem README.md muc 7) - da gap
+# thuc te. "worker" (Background Worker) khong bi quet port, phu hop dung.
+services:
+  - type: worker
+    name: bot-phan-tich
+    runtime: docker
+    plan: free
+    region: singapore
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO

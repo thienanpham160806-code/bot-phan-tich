@@ -50,8 +50,12 @@ _INDEX_SYMBOLS = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"}
 _INSTRUMENTS_PAGE_SIZE = 100
 
 
-def _to_epoch(value: date) -> int:
-    return int(datetime(value.year, value.month, value.day, tzinfo=timezone.utc).timestamp())
+def _to_epoch(value: date, end_of_day: bool = False) -> int:
+    if end_of_day:
+        dt = datetime(value.year, value.month, value.day, 23, 59, 59, tzinfo=timezone.utc)
+    else:
+        dt = datetime(value.year, value.month, value.day, 0, 0, 0, tzinfo=timezone.utc)
+    return int(dt.timestamp())
 
 
 def _market_type_of(symbol: str) -> str:
@@ -118,8 +122,8 @@ class DnseProvider(PriceProvider):
                 query={
                     "symbol": symbol.upper(),
                     "resolution": RESOLUTION_MAP.get(resolution, "1D"),
-                    "from": _to_epoch(start),
-                    "to": _to_epoch(end),
+                    "from": _to_epoch(start, end_of_day=False),
+                    "to": _to_epoch(end, end_of_day=True),
                 },
             )
         except Exception as exc:  # SDK nem nhieu loai loi khac nhau

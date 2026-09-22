@@ -40,7 +40,7 @@ def _load_frame(symbol: str, days: int = _LOOKBACK_DAYS):
 async def cmd_recommend(message: Message) -> None:
     symbol = parse_symbol(message)
     if not symbol:
-        await message.answer("Cú pháp: <code>/khuyennghi FPT</code>")
+        await message.answer("Cú pháp: <code>/kn FPT</code> (hoặc <code>/khuyennghi FPT</code>)")
         return
 
     async def work() -> str:
@@ -52,14 +52,14 @@ async def cmd_recommend(message: Message) -> None:
             log.exception("Lenh /khuyennghi that bai cho %s", symbol)
             return error_card(str(exc))
 
-    await run_with_notice(message, work)
+    await run_with_notice(message, work, reply_markup=symbol_actions(symbol))
 
 
 @router.message(Command("bieudo", "chart"))
 async def cmd_chart(message: Message) -> None:
     symbol = parse_symbol(message)
     if not symbol:
-        await message.answer("Cú pháp: <code>/bieudo FPT</code>")
+        await message.answer("Cú pháp: <code>/chart FPT</code> (hoặc <code>/bieudo FPT</code>)")
         return
 
     try:
