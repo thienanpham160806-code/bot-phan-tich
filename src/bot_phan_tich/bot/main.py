@@ -16,7 +16,9 @@ from aiogram.enums import ParseMode
 from aiogram.types import Message, TelegramObject
 
 from ..alerts.eod import run_eod_scan
+from ..analysis.snapshot import build_snapshot, ensure_fresh_in_background
 from ..config import get_secrets
+from ..data import market_store
 from ..data.cache import init_db
 from ..logging_conf import get_logger, setup_logging
 from .formatters import error_card
@@ -48,13 +50,27 @@ class ErrorGuard(BaseMiddleware):
 
 
 async def daily_scan_job(bot: Bot) -> None:
-    """Quet cuoi phien (alerts.eod.run_eod_scan) roi gui canh bao gop cho tung chat.
+    """Cong viec cuoi phien, chay theo `bot.scan_cron` (xem bot/scheduler.py):
 
-    run_eod_scan() khong goi Telegram - chi tra ve danh sach EodAlert, viec
-    gui thuc su nam o day de giu alerts/ khong phai module duoc goi mang.
+      1. Cap nhat tang dan kho gia toan san (market_store.refresh()).
+      2. Dung lai snapshot khuyen nghi (analysis.snapshot.build_snapshot()) -
+         de /loc va /tinhieu tra ket qua ngay lap tuc, khong tinh lai.
+      3. Quet canh bao (alerts.eod.run_eod_scan()) va gui gop cho tung chat.
+
+    Ca 3 buoc deu CHAY TRONG THREAD RIENG (asyncio.to_thread) - day la cong
+    viec nang (I/O mang + tinh CPU tren toan vu tru), khong duoc chan event
+    loop cua bot trong luc chay, neu khong bot se "dung hinh" ca budi.
     """
     try:
-        alerts = run_eod_scan()
+        updated_rows = await asyncio.to_thread(market_store.refresh)
+        log.info("daily_scan_job: market_store.refresh() -> %d dong", updated_rows)
+        snapshot_frame = await asyncio.to_thread(build_snapshot)
+        log.info("daily_scan_job: build_snapshot() -> %d ma", len(snapshot_frame))
+    except Exception:
+        log.exception("daily_scan_job: cap nhat kho/snapshot that bai")
+
+    try:
+        alerts = await asyncio.to_thread(run_eod_scan)
     except Exception:
         log.exception("Quet dinh ky (EOD) that bai")
         return
@@ -88,6 +104,11 @@ async def run() -> None:
 
     scheduler = build_scheduler(lambda: daily_scan_job(bot))
     scheduler.start()
+
+    # Neu snapshot thieu/cu luc khoi dong: cap nhat o NEN, khong cho bot
+    # khoi dong - /loc va /tinhieu tu bao "dang chuan bi du lieu" trong
+    # luc nay (xem analysis/snapshot.py:is_build_in_progress()).
+    asyncio.create_task(ensure_fresh_in_background())
 
     log.info("Bot bat dau chay")
     try:

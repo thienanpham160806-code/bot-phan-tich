@@ -1,36 +1,32 @@
-"""Loc co phieu theo dieu kien ky thuat va co ban.
+"""Loc co phieu - CHI DOC snapshot da tinh san, KHONG tinh lai, KHONG goi mang.
 
-Giai quyet van de: nguoi dung can quet nhanh mot phan hay toan bo san de tim
-ma dat dieu kien, MA KHONG duoc lam bot treo. Vi vay:
-  - Quet tren du lieu OHLCV da co trong cache (data/router.py tu lo viec doc
-    cache truoc khi goi mang).
-  - Co gioi han thoi gian `screener.timeout_seconds` - qua han thi dung va
-    tra ve ket qua da quet duoc kem ghi chu, khong quet tiep.
-  - Ghi log tien do dinh ky de theo doi mot lan quet dai dang chay den dau.
+Giai quyet van de: truoc day moi lan /loc phai quet lai toan san (goi
+recommend() + router.ohlcv() cho tung ma), lam bot treo. Gio /loc chi doc
+`data/market/snapshot.parquet` (xem analysis/snapshot.py:build_snapshot(),
+chay dinh ky sau gio dong cua qua bot/scheduler.py) roi loc bang pandas
+boolean mask - xong duoi 1 giay.
+
+Neu snapshot chua co hoac cu hon phien giao dich gan nhat, screen_report()
+tra ve ghi chu ro rang thay vi tu di tinh lai trong handler (xem
+bot/handlers/screener.py va analysis/snapshot.py:is_stale()).
 """
 from __future__ import annotations
 
-import time
+import unicodedata
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import datetime
+
+import pandas as pd
 
 from ..config import get_settings
-from ..data.router import DataRouter, get_router
-from ..data.universe import liquid_universe
-from ..indicators.common import volume_ratio
-from ..indicators.divergence import detect_divergence
-from ..indicators.ichimoku import ichimoku_state
-from ..indicators.macd import macd, macd_state
-from ..indicators.rsi import rsi_state
 from ..logging_conf import get_logger
-from .lookup import _RATIO_COLUMN_MAP, _extract, _industry_column
+from . import snapshot
 from .scoring import (
     ACTION_ACCUMULATE,
     ACTION_BUY,
     ACTION_REDUCE,
     ACTION_SELL,
     ACTION_WATCH,
-    recommend,
 )
 
 log = get_logger(__name__)
@@ -42,42 +38,32 @@ _ACTION_RANK = {
     ACTION_ACCUMULATE: 3,
     ACTION_BUY: 4,
 }
-_MIN_BARS = 60
-_PROGRESS_LOG_EVERY = 50
 
 
 @dataclass
 class ScreenCriteria:
-    """Dieu kien loc. Tat ca cac truong deu tuy chon (None = khong loc theo do)."""
+    """Dieu kien loc. Tat ca truong deu tuy chon (None = khong loc theo do)."""
 
-    symbols: list[str] | None = None  # None = quet toan vu tru thanh khoan (data/universe.py)
-
-    # --- ky thuat ---
-    min_action: str | None = None  # vd ACTION_ACCUMULATE -> chi lay tu bac nay len
+    exchanges: list[str] | None = None
+    min_action: str | None = None
     min_total_score: float | None = None
     price_vs_kumo: str | None = None  # "tren_may" / "trong_may" / "duoi_may"
+    max_kumo_break_bars: int | None = None  # gia moi vuot may trong toi da N phien
+    max_kumo_thickness: float | None = None  # may MONG duoi nguong nay (chuan hoa theo ATR)
     macd_cross: str | None = None  # "golden" / "death"
+    max_macd_bars_since: int | None = None  # MACD moi giao cat trong toi da N phien
     rsi_zone: str | None = None  # "qua_mua" / "trung_tinh" / "qua_ban"
-    require_bullish_divergence: bool = False
-    require_bearish_divergence: bool = False
+    divergence_type: str | None = None  # "bullish" / "bearish"
     min_volume_ratio: float | None = None
     max_volume_ratio: float | None = None
-    alert_mode: bool = False  # bo loc "canh bao": duoi may HOAC phan ky am (OR, khong phai AND)
-
-    # --- co ban ---
-    pe_min: float | None = None
-    pe_max: float | None = None
-    pb_min: float | None = None
-    pb_max: float | None = None
-    min_roe: float | None = None
-    min_market_cap: float | None = None
-    exchanges: list[str] | None = None
-    industries: list[str] | None = None
+    alert_mode: bool = False  # "canh bao": duoi may (moi thung) HOAC phan ky am (OR)
+    sort_ascending: bool = False
 
 
 @dataclass
 class ScreenResult:
     symbol: str
+    exchange: str | None
     action: str
     total_score: float
     close: float
@@ -87,225 +73,250 @@ class ScreenResult:
 
 @dataclass
 class ScreenReport:
-    """Ket qua mot lan quet, kem ghi chu neu bi cat ngang do het thoi gian."""
-
     results: list[ScreenResult]
-    scanned: int
-    total: int
-    timed_out: bool
+    total_universe: int
+    as_of: datetime | None
     note: str | None = field(default=None)
 
 
 def preset_breakout() -> ScreenCriteria:
-    """"Dot pha": gia vua vuot len tren may Kumo, MACD giao cat tang, KL > 1.5x TB20."""
-    return ScreenCriteria(price_vs_kumo="tren_may", macd_cross="golden", min_volume_ratio=1.5)
+    """"Dot pha": gia MOI vuot len tren may Kumo, MACD MOI giao cat tang,
+    khoi luong >= 1.5x TB20. "Moi" = trong vai phien gan day (ngan khong ai
+    thoa dieu kien tu hang chuc phien truoc)."""
+    settings = get_settings()
+    return ScreenCriteria(
+        price_vs_kumo="tren_may",
+        max_kumo_break_bars=settings.get("screener.breakout.max_kumo_break_bars", 3),
+        macd_cross="golden",
+        max_macd_bars_since=settings.get("screener.breakout.max_macd_bars_since", 3),
+        min_volume_ratio=settings.get("screener.breakout.min_volume_ratio", 1.5),
+    )
 
 
 def preset_accumulate() -> ScreenCriteria:
-    """"Tich luy": gia trong may (may mong), RSI trung tinh, khoi luong can."""
-    return ScreenCriteria(price_vs_kumo="trong_may", rsi_zone="trung_tinh", max_volume_ratio=0.8)
+    """"Tich luy": gia trong may (may MONG), RSI trung tinh, khoi luong can."""
+    settings = get_settings()
+    return ScreenCriteria(
+        price_vs_kumo="trong_may",
+        max_kumo_thickness=settings.get("screener.accumulate.max_kumo_thickness", 1.0),
+        rsi_zone="trung_tinh",
+        max_volume_ratio=settings.get("screener.accumulate.max_volume_ratio", 0.8),
+    )
 
 
 def preset_warning() -> ScreenCriteria:
-    """"Canh bao": gia thung xuong duoi may Kumo HOAC co phan ky am (dieu kien OR)."""
-    return ScreenCriteria(alert_mode=True)
+    """"Canh bao": gia MOI thung xuong duoi may Kumo HOAC co phan ky am (OR)."""
+    settings = get_settings()
+    return ScreenCriteria(
+        alert_mode=True,
+        max_kumo_break_bars=settings.get("screener.warning.max_kumo_break_bars", 3),
+        sort_ascending=True,
+    )
 
 
-def _passes_technical(
-    ichi_state: dict, rsi_state_: dict, divergence: dict, vol_ratio: float | None,
-    total_score: float, action: str, criteria: ScreenCriteria,
-) -> bool:
+def _passes(row: pd.Series, criteria: ScreenCriteria) -> bool:
     if criteria.alert_mode:
-        return ichi_state.get("price_vs_kumo") == "duoi_may" or divergence.get("type") == "bearish"
+        broke_down = row.get("price_vs_kumo") == "duoi_may" and (
+            criteria.max_kumo_break_bars is None
+            or (
+                pd.notna(row.get("kumo_break_bars"))
+                and row["kumo_break_bars"] <= criteria.max_kumo_break_bars
+            )
+        )
+        bearish_div = row.get("divergence_type") == "bearish"
+        return bool(broke_down or bearish_div)
 
+    if criteria.exchanges and row.get("exchange") not in criteria.exchanges:
+        return False
     if criteria.min_action:
         wanted_rank = _ACTION_RANK.get(criteria.min_action, 0)
-        if _ACTION_RANK.get(action, -1) < wanted_rank:
+        if _ACTION_RANK.get(row.get("action"), -1) < wanted_rank:
             return False
-    if criteria.min_total_score is not None and total_score < criteria.min_total_score:
+    if criteria.min_total_score is not None:
+        if pd.isna(row.get("total_score")) or row["total_score"] < criteria.min_total_score:
+            return False
+    if criteria.price_vs_kumo and row.get("price_vs_kumo") != criteria.price_vs_kumo:
         return False
-    if criteria.price_vs_kumo and ichi_state.get("price_vs_kumo") != criteria.price_vs_kumo:
+    if criteria.max_kumo_break_bars is not None:
+        bb = row.get("kumo_break_bars")
+        if pd.isna(bb) or bb > criteria.max_kumo_break_bars:
+            return False
+    if criteria.max_kumo_thickness is not None:
+        kt = row.get("kumo_thickness")
+        if pd.isna(kt) or kt > criteria.max_kumo_thickness:
+            return False
+    if criteria.macd_cross and row.get("macd_cross") != criteria.macd_cross:
         return False
-    # criteria.macd_cross duoc kiem rieng o _evaluate_symbol() truoc khi goi ham nay,
-    # vi can macd_state() (khong nam trong cac tham so cua ham nay).
-    if criteria.rsi_zone and rsi_state_.get("zone") != criteria.rsi_zone:
+    if criteria.max_macd_bars_since is not None:
+        bs = row.get("macd_bars_since")
+        if pd.isna(bs) or bs > criteria.max_macd_bars_since:
+            return False
+    if criteria.rsi_zone and row.get("rsi_zone") != criteria.rsi_zone:
         return False
-    if criteria.require_bullish_divergence and divergence.get("type") != "bullish":
+    if criteria.divergence_type and row.get("divergence_type") != criteria.divergence_type:
         return False
-    if criteria.require_bearish_divergence and divergence.get("type") != "bearish":
-        return False
-    min_vr, max_vr = criteria.min_volume_ratio, criteria.max_volume_ratio
-    if min_vr is not None and (vol_ratio is None or vol_ratio < min_vr):
-        return False
-    if max_vr is not None and (vol_ratio is None or vol_ratio > max_vr):
-        return False
+    if criteria.min_volume_ratio is not None:
+        vr = row.get("vol_ratio20")
+        if pd.isna(vr) or vr < criteria.min_volume_ratio:
+            return False
+    if criteria.max_volume_ratio is not None:
+        vr = row.get("vol_ratio20")
+        if pd.isna(vr) or vr > criteria.max_volume_ratio:
+            return False
     return True
 
 
-def _passes_fundamental(symbol: str, criteria: ScreenCriteria, router: DataRouter) -> bool:
-    has_fundamental_filter = any(
-        [
-            criteria.pe_min, criteria.pe_max, criteria.pb_min, criteria.pb_max,
-            criteria.min_roe, criteria.min_market_cap, criteria.industries,
-        ]
-    )
-    if not has_fundamental_filter:
-        return True  # khong loc theo co ban -> khong can goi them du lieu (nhanh hon)
-
-    if criteria.industries:
-        industry = _peer_industry(symbol, router)
-        if industry not in criteria.industries:
-            return False
-
-    pe = pb = roe = None
-    try:
-        ratios = router.financials(symbol, period="year").get("ratios")
-        if ratios is not None and not ratios.empty:
-            row = ratios.iloc[-1]
-            pe = _extract(row, _RATIO_COLUMN_MAP["pe"])
-            pb = _extract(row, _RATIO_COLUMN_MAP["pb"])
-            roe = _extract(row, _RATIO_COLUMN_MAP["roe"])
-    except Exception as exc:
-        log.debug("screen(): khong lay duoc ratios cho %s: %s", symbol, exc)
-
-    if criteria.pe_min is not None and (pe is None or pe < criteria.pe_min):
-        return False
-    if criteria.pe_max is not None and (pe is None or pe > criteria.pe_max):
-        return False
-    if criteria.pb_min is not None and (pb is None or pb < criteria.pb_min):
-        return False
-    if criteria.pb_max is not None and (pb is None or pb > criteria.pb_max):
-        return False
-    if criteria.min_roe is not None and (roe is None or roe < criteria.min_roe):
-        return False
-
-    if criteria.min_market_cap is not None:
-        # Can company_overview() (so luong CP luu hanh) - hien chua co nguon
-        # xac nhan (xem data/base.py). Khong bia so: coi nhu khong dat dieu
-        # kien khi thieu du lieu, thay vi gia dinh dat.
-        market_cap = _market_cap(symbol, router)
-        if market_cap is None or market_cap < criteria.min_market_cap:
-            return False
-
-    return True
-
-
-def _peer_industry(symbol: str, router: DataRouter) -> str | None:
-    try:
-        industry_map = router.industry_map()
-        col = _industry_column(industry_map)
-        if not col:
-            return None
-        row = industry_map.loc[industry_map["symbol"].astype(str).str.upper() == symbol]
-        return str(row.iloc[0][col]) if not row.empty else None
-    except Exception:
-        return None
-
-
-def _market_cap(symbol: str, router: DataRouter) -> float | None:
-    try:
-        shares = router.company_overview(symbol).get("shares_outstanding")
-        if not shares:
-            return None
-        end = date.today()
-        frame = router.ohlcv(symbol, end - timedelta(days=10), end)
-        if frame.empty:
-            return None
-        return float(frame["close"].iloc[-1]) * float(shares)
-    except Exception:
-        return None
-
-
-def _evaluate_symbol(
-    symbol: str, frame, criteria: ScreenCriteria, router: DataRouter
-) -> ScreenResult | None:
-    if len(frame) < _MIN_BARS:
-        return None
-
-    rec = recommend(frame, symbol)
-    rsi_st = rsi_state(frame)
-    ichi_st = ichimoku_state(frame)
-    divergence = detect_divergence(frame, macd(frame)["hist"])
-    vr_series = volume_ratio(frame, period=20).dropna()
-    vr_last = float(vr_series.iloc[-1]) if not vr_series.empty else None
-
-    if criteria.macd_cross:
-        macd_st = macd_state(frame)
-        if macd_st.get("cross") != criteria.macd_cross:
-            return None
-
-    ok_technical = _passes_technical(
-        ichi_st, rsi_st, divergence, vr_last, rec.total_score, rec.action, criteria
-    )
-    if not ok_technical:
-        return None
-    if not _passes_fundamental(symbol, criteria, router):
-        return None
-
-    return ScreenResult(
-        symbol=symbol,
-        action=rec.action,
-        total_score=rec.total_score,
-        close=rec.close,
-        component_scores=rec.component_scores,
-        reasons=rec.reasons,
-    )
+def _row_reasons(row: pd.Series) -> list[str]:
+    """"reasons" doc lai tu parquet co the la None hoac numpy array (khong
+    phai list) - "x or []" se loi ("truth value cua array la ambiguous"),
+    phai kiem tra "is None" tuong minh."""
+    value = row.get("reasons")
+    return [] if value is None else list(value)
 
 
 def screen_report(criteria: ScreenCriteria) -> ScreenReport:
-    """Chay mot lan quet day du, tra ve ket qua kem thong tin tien do/timeout."""
-    settings = get_settings()
-    timeout = settings.get("screener.timeout_seconds", 25.0)
-    router = get_router()
+    """Loc snapshot theo `criteria`. KHONG goi mang, KHONG tinh chi bao."""
+    frame = snapshot.load_snapshot()
+    if frame.empty:
+        return ScreenReport(
+            results=[],
+            total_universe=0,
+            as_of=None,
+            note=(
+                "Dữ liệu chưa được tính cho phiên này. Chạy "
+                "`python scripts/build_snapshot.py` (sau khi đã backfill_data.py) trước."
+            ),
+        )
 
-    symbols = criteria.symbols or liquid_universe(use_watchlist=False)
-    if criteria.exchanges:
-        try:
-            listing = router.listing(criteria.exchanges)
-            allowed = set(listing["symbol"].astype(str).str.upper())
-            symbols = [s for s in symbols if s in allowed]
-        except Exception as exc:
-            log.warning("screen(): khong loc duoc truoc theo san: %s", exc)
-
-    total = len(symbols)
-    end = date.today()
-    start_range = end - timedelta(days=400)
-
-    started = time.monotonic()
-    results: list[ScreenResult] = []
-    scanned = 0
-    timed_out = False
-
-    for symbol in symbols:
-        if time.monotonic() - started > timeout:
-            timed_out = True
-            log.warning("screen(): het han %.0fs sau %d/%d ma, dung quet", timeout, scanned, total)
-            break
-
-        scanned += 1
-        if scanned % _PROGRESS_LOG_EVERY == 0 or scanned == total:
-            log.info(
-                "screen(): da quet %d/%d ma (%d ma hop dieu kien)", scanned, total, len(results)
-            )
-
-        try:
-            frame = router.ohlcv(symbol, start_range, end)
-            result = _evaluate_symbol(symbol, frame, criteria, router)
-            if result is not None:
-                results.append(result)
-        except Exception as exc:
-            log.debug("screen(): bo qua %s do loi: %s", symbol, exc)
-
-    results.sort(key=lambda r: r.total_score, reverse=True)
+    as_of = snapshot.snapshot_last_updated()
     note = None
-    if timed_out:
-        note = f"Chua quet het: da quet {scanned}/{total} ma trong {timeout:.0f}s cho phep."
+    if snapshot.is_stale():
+        expected = snapshot.last_expected_session()
+        note = (
+            f"⚠️ Dữ liệu chưa được tính cho phiên này (bản gần nhất tính lúc "
+            f"{as_of:%d/%m/%Y %H:%M} — nếu bạn đang xem sau phiên {expected:%d/%m/%Y}, "
+            "kết quả có thể cũ)."
+        )
 
-    return ScreenReport(
-        results=results, scanned=scanned, total=total, timed_out=timed_out, note=note
-    )
+    mask = frame.apply(lambda row: _passes(row, criteria), axis=1)
+    matched = frame.loc[mask].copy()
+    matched = matched.sort_values("total_score", ascending=criteria.sort_ascending)
+
+    limit = get_settings().get("screener.max_results", 15)
+    matched = matched.head(limit)
+
+    results = [
+        ScreenResult(
+            symbol=row["symbol"],
+            exchange=row.get("exchange"),
+            action=row["action"],
+            total_score=float(row["total_score"]),
+            close=float(row["close"]),
+            component_scores={
+                "macd": row.get("score_macd"),
+                "rsi": row.get("score_rsi"),
+                "ichimoku": row.get("score_ichimoku"),
+            },
+            reasons=_row_reasons(row),
+        )
+        for _, row in matched.iterrows()
+    ]
+    return ScreenReport(results=results, total_universe=len(frame), as_of=as_of, note=note)
 
 
 def screen(criteria: ScreenCriteria) -> list[ScreenResult]:
-    """Loc co phieu theo `criteria`. Xem screen_report() de lay them ghi chu timeout."""
+    """Loc co phieu theo `criteria`. Xem screen_report() de lay them ghi chu."""
     return screen_report(criteria).results
+
+
+# --------------------------------------------------------- loc tuy chinh (/loc <dieu kien>)
+class CriteriaParseError(ValueError):
+    """Tham so /loc sai cu phap hoac gia tri khong hop le - kem thong bao than thien."""
+
+
+_ACTION_ALIASES = {
+    "mua": ACTION_BUY,
+    "tichluy": ACTION_ACCUMULATE,
+    "theodoi": ACTION_WATCH,
+    "giamtytrong": ACTION_REDUCE,
+    "ban": ACTION_SELL,
+}
+_KUMO_ALIASES = {"tren": "tren_may", "trong": "trong_may", "duoi": "duoi_may"}
+_MACD_ALIASES = {"tang": "golden", "giam": "death"}
+_RSI_ALIASES = {"quamua": "qua_mua", "trungtinh": "trung_tinh", "quaban": "qua_ban"}
+_DIV_ALIASES = {"duong": "bullish", "am": "bearish"}
+
+USAGE_EXAMPLE = "/loc san=HOSE kn=MUA rsi=quaban"
+
+
+def _normalize_token(value: str) -> str:
+    """Bo dau + thuong hoa de nguoi dung go co dau hay khong dau deu khop
+    (vd 'quá bán' hoac 'quaban' deu ra 'quaban')."""
+    decomposed = unicodedata.normalize("NFD", value)
+    stripped = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return stripped.lower().replace("_", "").replace(" ", "").replace("-", "")
+
+
+def _parse_alias(key: str, value: str, table: dict[str, str]) -> str:
+    norm = _normalize_token(value)
+    result = table.get(norm)
+    if result is None:
+        raise CriteriaParseError(
+            f"Giá trị {key}={value} không hợp lệ. Dùng một trong: "
+            f"{', '.join(table)}. Ví dụ: {USAGE_EXAMPLE}"
+        )
+    return result
+
+
+def _parse_float(key: str, value: str) -> float:
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise CriteriaParseError(
+            f"Giá trị {key}={value} phải là số. Ví dụ: {USAGE_EXAMPLE}"
+        ) from exc
+
+
+def parse_criteria(text: str) -> ScreenCriteria:
+    """Phan tich tham so dang 'san=HOSE kn=MUA rsi=quaban' thanh ScreenCriteria.
+
+    Nem CriteriaParseError (thong bao than thien, kem vi du dung) neu tham
+    so sai cu phap hoac gia tri khong hop le - KHONG bao gio crash handler.
+    """
+    criteria = ScreenCriteria()
+    tokens = text.split()
+    if not tokens:
+        return criteria
+
+    for token in tokens:
+        if "=" not in token:
+            raise CriteriaParseError(
+                f"Tham số '{token}' thiếu dấu '='. Ví dụ đúng: {USAGE_EXAMPLE}"
+            )
+        key, _, value = token.partition("=")
+        key, value = key.strip().lower(), value.strip()
+        if not value:
+            raise CriteriaParseError(f"Tham số '{key}' thiếu giá trị. Ví dụ: {USAGE_EXAMPLE}")
+
+        if key == "san":
+            criteria.exchanges = [v.strip().upper() for v in value.split(",") if v.strip()]
+        elif key == "kn":
+            criteria.min_action = _parse_alias(key, value, _ACTION_ALIASES)
+        elif key == "rsi":
+            criteria.rsi_zone = _parse_alias(key, value, _RSI_ALIASES)
+        elif key == "may":
+            criteria.price_vs_kumo = _parse_alias(key, value, _KUMO_ALIASES)
+        elif key == "macd":
+            criteria.macd_cross = _parse_alias(key, value, _MACD_ALIASES)
+        elif key == "phanky":
+            criteria.divergence_type = _parse_alias(key, value, _DIV_ALIASES)
+        elif key == "diem":
+            criteria.min_total_score = _parse_float(key, value)
+        elif key == "kl":
+            criteria.min_volume_ratio = _parse_float(key, value)
+        else:
+            raise CriteriaParseError(
+                f"Tham số '{key}' không được hỗ trợ. Các tham số hợp lệ: "
+                f"san, kn, rsi, may, macd, phanky, diem, kl. Ví dụ: {USAGE_EXAMPLE}"
+            )
+    return criteria

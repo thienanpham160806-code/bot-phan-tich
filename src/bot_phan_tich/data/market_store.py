@@ -125,3 +125,26 @@ def save_symbols(frame: pd.DataFrame) -> None:
     path = symbols_path()
     frame.to_parquet(path, index=False)
     _cache.pop(str(path), None)
+
+
+def refresh(count_back: int = 10) -> int:
+    """Cap nhat TANG DAN: tai `count_back` phien gan nhat cho CAC MA DA CO
+    trong kho, gop vao (khu trung theo (symbol, time), giu ban ghi moi hon).
+
+    Dung cho lich chay hang ngay (xem bot/scheduler.py, bot/main.py:
+    daily_scan_job) - NGAN va nhanh hon nhieu so voi backfill lan dau. Neu
+    kho chua co gi (chua chay scripts/backfill_data.py lan nao), khong lam
+    gi ca va tra ve 0 - khong tu bia danh sach ma.
+    """
+    existing = load_ohlcv()
+    if existing.empty:
+        log.warning(
+            "market_store.refresh(): kho rong, chay scripts/backfill_data.py lan dau truoc"
+        )
+        return 0
+
+    from .vietcap import fetch_ohlcv_bulk  # tranh import vong o muc module
+
+    symbols = sorted(existing["symbol"].unique().tolist())
+    frame = fetch_ohlcv_bulk(symbols, count_back=count_back)
+    return save_ohlcv(frame, merge=True)
