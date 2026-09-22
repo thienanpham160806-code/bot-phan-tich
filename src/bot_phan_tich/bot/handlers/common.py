@@ -59,6 +59,10 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
 • <code>/market</code> — <b>Xu hướng thị trường chung (VN-Index)</b>
   ➔ Đánh giá sức mạnh thị trường để quyết định giải ngân hay giữ tiền.
 
+• <code>/tintuc</code> — <b>Bản tin vĩ mô, nghị định & luật thị trường</b>
+  ➔ Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất.
+  ➔ Bật nhận tin tự động mỗi 1 giờ: <code>/tintuc on</code> (hoặc <code>/tintuc off</code>).
+
 ━━━━━━━━━━━━━━━━━━━━━
 ⭐ <b>3. NHU CẦU: QUẢN LÝ DANH MỤC & CẢNH BÁO</b>
 <i>(Lưu danh mục cá nhân để bot theo dõi hộ bạn mỗi ngày)</i>

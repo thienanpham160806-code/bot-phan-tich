@@ -19,9 +19,10 @@ from ..alerts.eod import run_eod_scan
 from ..analysis.snapshot import build_snapshot, ensure_fresh_in_background
 from ..config import get_secrets
 from ..data import market_store
-from ..data.cache import init_db
+from ..data.cache import get_news_subscribers, init_db, save_macro_news_items
+from ..data.macro_news import fetch_all_macro_news
 from ..logging_conf import get_logger, setup_logging
-from .formatters import error_card
+from .formatters import error_card, macro_news_card
 from .handlers import ROUTERS
 from .scheduler import build_scheduler
 
@@ -82,6 +83,33 @@ async def daily_scan_job(bot: Bot) -> None:
             log.warning("Khong gui duoc canh bao cho chat %s: %s", alert.chat_id, exc)
 
 
+async def hourly_news_job(bot: Bot) -> None:
+    """Tong hop tin tuc vi mo, phap luat va phat song moi gio cho nguoi dung."""
+    try:
+        raw_items = await asyncio.to_thread(fetch_all_macro_news)
+        dict_items = [it.to_dict() for it in raw_items]
+        new_items = await asyncio.to_thread(save_macro_news_items, dict_items)
+        log.info(
+            "hourly_news_job: quet %d tin tu RSS, phat hien %d tin moi",
+            len(dict_items),
+            len(new_items),
+        )
+
+        subscribers = await asyncio.to_thread(get_news_subscribers)
+        if not subscribers or not new_items:
+            return
+
+        # Lay toi da 5 tin moi nhat vua phat hien
+        notice_card = macro_news_card(new_items[:5], title_suffix="1 Giờ Qua")
+        for chat_id in subscribers:
+            try:
+                await bot.send_message(chat_id, notice_card)
+            except Exception as exc:
+                log.warning("Khong gui duoc ban tin cho chat %s: %s", chat_id, exc)
+    except Exception:
+        log.exception("hourly_news_job that bai")
+
+
 async def run() -> None:
     setup_logging()
     init_db()
@@ -102,7 +130,10 @@ async def run() -> None:
     for router in ROUTERS:
         dispatcher.include_router(router)
 
-    scheduler = build_scheduler(lambda: daily_scan_job(bot))
+    scheduler = build_scheduler(
+        lambda: daily_scan_job(bot),
+        lambda: hourly_news_job(bot),
+    )
     scheduler.start()
 
     # Neu snapshot thieu/cu luc khoi dong: cap nhat o NEN, khong cho bot
@@ -120,6 +151,7 @@ async def run() -> None:
                 BotCommand(command="loc", description="Bộ lọc cổ phiếu toàn sàn (Breakout, Nền)"),
                 BotCommand(command="tinhieu", description="Tín hiệu MUA / BÁN phiên gần nhất"),
                 BotCommand(command="market", description="Trạng thái chỉ số thị trường VN-Index"),
+                BotCommand(command="tintuc", description="Bản tin thị trường & nghị định/luật"),
                 BotCommand(command="sub", description="Thêm vào danh mục theo dõi (VD: /sub FPT)"),
                 BotCommand(command="watchlist", description="Xem danh sách cổ phiếu theo dõi"),
                 BotCommand(command="canhbao", description="Bật/tắt cảnh báo tự động cuối phiên"),
@@ -135,6 +167,7 @@ async def run() -> None:
     finally:
         scheduler.shutdown(wait=False)
         await bot.session.close()
+
 
 
 def main() -> None:

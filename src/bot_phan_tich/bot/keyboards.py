@@ -13,8 +13,9 @@ def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="/loc"), KeyboardButton(text="/tinhieu")],
-            [KeyboardButton(text="/market"), KeyboardButton(text="/watchlist")],
-            [KeyboardButton(text="/canhbao"), KeyboardButton(text="/help")],
+            [KeyboardButton(text="/market"), KeyboardButton(text="/tintuc")],
+            [KeyboardButton(text="/watchlist"), KeyboardButton(text="/canhbao")],
+            [KeyboardButton(text="/help")],
         ],
         resize_keyboard=True,
     )

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import urllib.parse
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Any
 
@@ -591,6 +592,74 @@ def alerts_toggle_card(enabled: bool) -> str:
 
 def error_card(message: str) -> str:
     return f"Không xử lý được yêu cầu.\n\n<i>{escape(message)}</i>"
+
+
+def macro_news_card(items: list[dict], title_suffix: str = "1 Giờ Qua") -> str:
+    """Dinh dang ban tin tong hop vi mo, phap luat va thi truong."""
+    if not items:
+        return (
+            f"📰 <b>ĐIỂM TIN THỊ TRƯỜNG & VĂN BẢN PHÁP LUẬT ({title_suffix})</b>\n\n"
+            "<i>Không có tin tức vĩ mô hoặc văn bản mới nào được phát hành "
+            "trong khoảng thời gian này.</i>\n\n"
+            "💡 Gõ <code>/tintuc</code> để xem các tin tức gần nhất, "
+            "hoặc <code>/tintuc on</code> để bật thông báo tự động mỗi 1 giờ."
+        )
+
+    lines: list[str] = [
+        f"📰 <b>TỔNG HỢP TIN THỊ TRƯỜNG & VĂN BẢN PHÁP LUẬT — {title_suffix.upper()}</b>",
+        "─────────────────────────",
+    ]
+
+    # Phan nhom tin
+    policy_items = [it for it in items if it.get("category") == "CHÍNH SÁCH - PHÁP LUẬT"]
+    macro_items = [it for it in items if it.get("category") == "VĨ MÔ & THỊ TRƯỜNG"]
+    corp_items = [it for it in items if it.get("category") not in (
+        "CHÍNH SÁCH - PHÁP LUẬT", "VĨ MÔ & THỊ TRƯỜNG"
+    )]
+
+    def _render_group(group_title: str, group_items: list[dict]) -> None:
+        if not group_items:
+            return
+        lines.append("")
+        lines.append(f"<b>{group_title}</b>")
+        for it in group_items:
+            # Dinh dang thoi gian
+            time_str = ""
+            pub_raw = it.get("published_at", "")
+            if pub_raw:
+                try:
+                    # ISO format: 2026-09-22T17:10:00+00:00
+                    dt = datetime.fromisoformat(pub_raw)
+                    # Chuyen sang gio VN (+7)
+                    dt_vn = dt.astimezone(timezone(timedelta(hours=7)))
+                    time_str = dt_vn.strftime("%H:%M")
+                except Exception:
+                    time_str = pub_raw[:16]
+
+            time_badge = f"<b>[{time_str}]</b> " if time_str else ""
+            title = escape(it.get("title", ""))
+            link = it.get("link", "")
+            source = escape(it.get("source", "Báo chí"))
+            summary = escape(it.get("summary", ""))
+
+            lines.append(f"• {time_badge}<a href=\"{link}\">{title}</a> <i>[{source}]</i>")
+            if summary:
+                lines.append(f"   ↳ <i>{summary}</i>")
+
+    _render_group("🏛️ VĂN BẢN QUY PHẠM, NGHỊ ĐỊNH & CHÍNH SÁCH", policy_items)
+    _render_group("📊 KINH TẾ VĨ MÔ & THỊ TRƯỜNG CHỨNG KHOÁN", macro_items)
+    _render_group("🏢 DOANH NGHIỆP & NGÀNH NGHỀ", corp_items)
+
+    lines.append("")
+    lines.append("─────────────────────────")
+    lines.append(
+        "💡 <i>Để nhận bản tin tự động mỗi 1 giờ: gõ <code>/tintuc on</code> "
+        "(hoặc <code>/tintuc off</code> để tắt).</i>"
+    )
+    lines.append("")
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)
+
 
 
 # ------------------------------------------------------------- xu ly lau > 2s

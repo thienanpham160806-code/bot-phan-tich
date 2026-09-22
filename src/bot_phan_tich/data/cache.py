@@ -48,6 +48,25 @@ CREATE TABLE IF NOT EXISTS alert_settings (
     chat_id     INTEGER PRIMARY KEY,
     enabled     INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS macro_news_items (
+    guid            TEXT PRIMARY KEY,
+    title           TEXT NOT NULL,
+    link            TEXT NOT NULL,
+    category        TEXT NOT NULL,
+    summary         TEXT,
+    published_at    TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    created_at      REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_published ON macro_news_items(published_at);
+
+CREATE TABLE IF NOT EXISTS news_subscribers (
+    chat_id     INTEGER PRIMARY KEY,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  REAL NOT NULL
+);
 """
 
 
@@ -111,3 +130,79 @@ def age_seconds(key: str) -> float | None:
     with connect() as conn:
         row = conn.execute("SELECT updated_at FROM cache_meta WHERE key = ?", (key,)).fetchone()
     return None if row is None else time.time() - row["updated_at"]
+
+
+# ----------------------------------------------------------------- tin tuc vi mo & phap luat
+def save_macro_news_items(items: list[dict]) -> list[dict]:
+    """Luu danh sach tin tuc vi mo vao cache. Tra ve danh sach cac tin MOI chua tung co."""
+    if not items:
+        return []
+    new_items: list[dict] = []
+    now = time.time()
+    with connect() as conn:
+        for it in items:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO macro_news_items "
+                "(guid, title, link, category, summary, published_at, source, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    it["guid"],
+                    it["title"],
+                    it["link"],
+                    it["category"],
+                    it.get("summary", ""),
+                    it["published_at"],
+                    it["source"],
+                    now,
+                ),
+            )
+            if cursor.rowcount > 0:
+                new_items.append(it)
+    return new_items
+
+
+def get_recent_macro_news(limit: int = 6, category: str | None = None) -> list[dict]:
+    """Lay danh sach tin tuc vi mo moi nhat tu CSDL."""
+    query = (
+        "SELECT guid, title, link, category, summary, published_at, source "
+        "FROM macro_news_items "
+    )
+    params: list[object] = []
+    if category:
+        query += "WHERE category = ? "
+        params.append(category)
+    query += "ORDER BY published_at DESC LIMIT ?"
+    params.append(limit)
+
+    with connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_news_subscriber(chat_id: int, enabled: bool = True) -> None:
+    """Bat hoac tat nhan tin tuc dinh ky moi gio cho nguoi dung / group."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO news_subscribers(chat_id, enabled, created_at) VALUES (?,?,?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET enabled=excluded.enabled",
+            (chat_id, 1 if enabled else 0, time.time()),
+        )
+
+
+def is_news_subscribed(chat_id: int) -> bool:
+    """Kiem tra xem chat_id co dang bat nhan tin tuc tu dong khong."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT enabled FROM news_subscribers WHERE chat_id = ?", (chat_id,)
+        ).fetchone()
+        return bool(row["enabled"]) if row else False
+
+
+def get_news_subscribers() -> list[int]:
+    """Lay danh sach chat_id dang bat nhan tin tuc moi gio."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT chat_id FROM news_subscribers WHERE enabled = 1"
+        ).fetchall()
+        return [int(r["chat_id"]) for r in rows]
+
