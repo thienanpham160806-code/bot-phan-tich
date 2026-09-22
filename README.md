@@ -255,7 +255,27 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-### 7.3. Lịch chạy tự động của Bot
+### 7.3. Triển khai trên Render.com
+
+Repo có sẵn `render.yaml` (Docker runtime). **Bắt buộc phải là loại
+`worker` (Background Worker), không phải `web` (Web Service)** — bot chỉ
+polling Telegram, không mở port HTTP nào, nên Render sẽ **quét port và
+timeout deploy** nếu tạo nhầm loại `web` (lỗi thường gặp: log dừng ở
+`Run polling for bot...` rồi Render báo `No open ports detected ... Timed
+Out` dù bot thực ra đã chạy tốt).
+
+- **Deploy lần đầu qua Blueprint** (khuyến nghị, tự đọc đúng `render.yaml`):
+  Render dashboard → **New +** → **Blueprint** → chọn repo này → Render tự
+  tạo service loại `worker` theo đúng `render.yaml`.
+- **Nếu đã lỡ tạo service loại `web` qua dashboard thủ công** (không qua
+  Blueprint): Render **không cho đổi loại service tại chỗ** — phải xoá
+  service đó và tạo lại bằng **New +** → **Background Worker** (không chọn
+  Web Service), trỏ tới đúng nhánh đang có `render.yaml`/code mới nhất, rồi
+  điền `TELEGRAM_BOT_TOKEN` trong mục Environment.
+- Không cần biến `PORT`, không cần healthcheck HTTP — Background Worker
+  không bị quét port.
+
+### 7.4. Lịch chạy tự động của Bot
 
 Hệ thống được điều phối tự động bởi `APScheduler`:
 

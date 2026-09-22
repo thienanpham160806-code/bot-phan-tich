@@ -164,7 +164,11 @@ async def run() -> None:
 
     log.info("Bot bat dau chay")
 
-    # Ho tro Health Check HTTP tren Render/Railway neu co bien PORT
+    # Chi dung khi deploy nhu MOT WEB SERVICE (vd Railway mac dinh, hoac neu
+    # lo cau hinh Render la "web" thay vi "worker" - xem README.md muc 7.3).
+    # render.yaml chinh thuc cua repo nay khai bao "type: worker" (Background
+    # Worker) - loai do KHONG bi Render quet port nen bien PORT se khong duoc
+    # dat va khoi nay tu bo qua, hoan toan vo hai.
     port_str = os.getenv("PORT")
     web_runner = None
     if port_str:
