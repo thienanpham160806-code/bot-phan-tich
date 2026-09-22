@@ -1,9 +1,18 @@
-# type: worker (KHONG PHAI "web") - bot nay dung Telegram long-polling
-# (dispatcher.start_polling()), khong mo port HTTP nao ca. "web" se bi
-# Render quet port va TIMEOUT sau vai phut (xem README.md muc 7) - da gap
-# thuc te. "worker" (Background Worker) khong bi quet port, phu hop dung.
+# type: worker (Background Worker) la lua chon DUNG BAN CHAT cho bot polling
+# nay, nhung Render KHONG cho tao worker tren goi Free ("service type is not
+# available for this plan" - da gap thuc te, worker can goi Starter tra phi
+# tro len). Nen danh cho goi Free: giu type: web + healthcheck HTTP du phong
+# trong bot/main.py (bat bien PORT Render tu cap) de qua duoc vong quet port.
+#
+# NHUOC DIEM: Web Service goi Free tu "ngu" (spin down) sau ~15 phut KHONG
+# CO REQUEST HTTP nao goi den - va se khong co ai tu goi vao (bot chi poll
+# Telegram RA NGOAI, khong nhan request tu ai). Khi ngu, CA TIEN TRINH bot
+# dung hoan toan (ca polling Telegram, ca lich quet 15h05/tin tuc hang gio).
+# BAT BUOC phai dung mot dich vu ping dinh ky mien phi (vd UptimeRobot) goi
+# vao <URL_RENDER>/healthz moi 5-10 phut de giu bot luon thuc - xem README.md
+# muc 7.3.
 services:
-  - type: worker
+  - type: web
     name: bot-phan-tich
     runtime: docker
     plan: free

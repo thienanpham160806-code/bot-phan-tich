@@ -164,11 +164,15 @@ async def run() -> None:
 
     log.info("Bot bat dau chay")
 
-    # Chi dung khi deploy nhu MOT WEB SERVICE (vd Railway mac dinh, hoac neu
-    # lo cau hinh Render la "web" thay vi "worker" - xem README.md muc 7.3).
-    # render.yaml chinh thuc cua repo nay khai bao "type: worker" (Background
-    # Worker) - loai do KHONG bi Render quet port nen bien PORT se khong duoc
-    # dat va khoi nay tu bo qua, hoan toan vo hai.
+    # BAT BUOC khi deploy tren goi Free cua Render (render.yaml: type: web) -
+    # goi Free KHONG ho tro Background Worker ("service type is not
+    # available for this plan", da gap thuc te), nen phai deploy nhu Web
+    # Service va tu mo mot port gia de qua vong quet port cua Render. Neu
+    # sau nay nang cap len goi tra phi va doi sang type: worker, khoi nay tu
+    # vo hai (bien PORT se khong duoc dat, "if port_str" khong chay).
+    # Xem README.md muc 7.3 (gom ca cach giu bot khong bi Render "ngu" do
+    # goi Free spin-down sau ~15 phut khong co request HTTP - can UptimeRobot
+    # ping dinh ky vao /healthz).
     port_str = os.getenv("PORT")
     web_runner = None
     if port_str:

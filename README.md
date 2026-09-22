@@ -255,25 +255,42 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-### 7.3. Triển khai trên Render.com
+### 7.3. Triển khai trên Render.com (gói Free)
 
-Repo có sẵn `render.yaml` (Docker runtime). **Bắt buộc phải là loại
-`worker` (Background Worker), không phải `web` (Web Service)** — bot chỉ
-polling Telegram, không mở port HTTP nào, nên Render sẽ **quét port và
-timeout deploy** nếu tạo nhầm loại `web` (lỗi thường gặp: log dừng ở
-`Run polling for bot...` rồi Render báo `No open ports detected ... Timed
-Out` dù bot thực ra đã chạy tốt).
+Bot polling Telegram về bản chất hợp với loại **Background Worker** (không
+mở port, không bị quét port) — nhưng **gói Free của Render KHÔNG hỗ trợ
+Background Worker** (chỉ trả phí từ gói Starter trở lên mới tạo được loại
+này — lỗi gặp thực tế: *"service type is not available for this plan"*).
+Nên trên gói Free, `render.yaml` khai báo **`type: web`**, kèm một HTTP
+health-check dự phòng trong `bot/main.py` (bắt biến `PORT` Render tự cấp,
+mở một server trả `200 OK`) để bot qua được vòng quét port của Render.
 
-- **Deploy lần đầu qua Blueprint** (khuyến nghị, tự đọc đúng `render.yaml`):
-  Render dashboard → **New +** → **Blueprint** → chọn repo này → Render tự
-  tạo service loại `worker` theo đúng `render.yaml`.
-- **Nếu đã lỡ tạo service loại `web` qua dashboard thủ công** (không qua
-  Blueprint): Render **không cho đổi loại service tại chỗ** — phải xoá
-  service đó và tạo lại bằng **New +** → **Background Worker** (không chọn
-  Web Service), trỏ tới đúng nhánh đang có `render.yaml`/code mới nhất, rồi
-  điền `TELEGRAM_BOT_TOKEN` trong mục Environment.
-- Không cần biến `PORT`, không cần healthcheck HTTP — Background Worker
-  không bị quét port.
+**Deploy:** Render dashboard → **New +** → **Blueprint** (hoặc **Web
+Service** thủ công, chọn Docker runtime) → chọn repo này, nhánh `main` →
+điền `TELEGRAM_BOT_TOKEN` → Deploy.
+
+**Vấn đề còn lại — BẮT BUỘC phải xử lý:** gói Free của Render tự "ngủ"
+(spin down) sau **~15 phút không có request HTTP nào gọi đến** service.
+Sẽ không có ai tự gọi HTTP vào bot cả (bot chỉ polling Telegram RA NGOÀI,
+không nhận request từ ai) — nên nếu không làm gì thêm, khoảng 15 phút sau
+khi deploy, **cả tiến trình bot sẽ bị dừng hẳn** (kể cả vòng polling
+Telegram, kể cả lịch quét 15h05/tin tức hàng giờ), và không tự chạy lại
+được cho tới khi có ai đó gọi lại URL hoặc redeploy thủ công.
+
+**Cách giữ bot luôn thức, miễn phí:** dùng một dịch vụ ping định kỳ bên
+ngoài gọi vào endpoint health-check mỗi 5–10 phút, ví dụ
+[UptimeRobot](https://uptimerobot.com) (miễn phí):
+
+1. Lấy URL public của service trên Render (dạng
+   `https://<ten-service>.onrender.com`), thêm `/healthz` vào cuối.
+2. UptimeRobot → **Add New Monitor** → Monitor Type: **HTTP(s)** → dán URL
+   trên → Monitoring Interval: **5 phút** → Save.
+3. Từ đó UptimeRobot tự gọi vào bot mỗi 5 phút, Render luôn thấy có
+   "traffic" nên không bao giờ spin down.
+
+Nếu sau này nâng cấp lên gói trả phí, chỉ cần đổi `render.yaml` sang
+`type: worker` và tạo lại service qua Blueprint — không cần cấu hình
+health-check/ping ngoài nữa.
 
 ### 7.4. Lịch chạy tự động của Bot
 
