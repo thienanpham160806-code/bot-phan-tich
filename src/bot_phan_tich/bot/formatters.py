@@ -433,19 +433,21 @@ def lookup_card(profile) -> str:
             if hasattr(item, "title"):
                 title = escape(item.title)
                 date_str = escape(item.published_at or "")
-                google_url = item.url or (
-                    f"https://www.google.com/search?q="
-                    f"{urllib.parse.quote_plus(f'{profile.symbol} {item.title}')}"
-                )
-                cafef_url = item.cafef_url or (
-                    f"https://cafef.vn/tim-kiem.chn?keywords="
-                    f"{urllib.parse.quote_plus(profile.symbol)}"
-                )
+                read_url = item.url
+                cafef_url = item.cafef_url or f"https://s.cafef.vn/tin-doanh-nghiep/{profile.symbol.upper()}/Event.chn"
                 date_prefix = f"• <b>{date_str}</b> — " if date_str else "• "
-                lines.append(
-                    f"{date_prefix}<a href=\"{google_url}\">{title}</a> "
-                    f"<i>[<a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
-                )
+                if read_url:
+                    lines.append(
+                        f"{date_prefix}<a href=\"{read_url}\">{title}</a> "
+                        f"<i>[<a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
+                    )
+                else:
+                    search_q = urllib.parse.quote_plus(f"{profile.symbol} {item.title}")
+                    search_url = f"https://www.google.com/search?q={search_q}"
+                    lines.append(
+                        f"{date_prefix}{title} "
+                        f"<i>[<a href=\"{search_url}\">🔍 Tìm</a> | <a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
+                    )
             else:
                 raw_text = str(item)
                 if " — " in raw_text:
@@ -454,12 +456,11 @@ def lookup_card(profile) -> str:
                     if not search_tit.upper().startswith(profile.symbol.upper()):
                         search_tit = f"{profile.symbol} {search_tit}"
                     q = urllib.parse.quote_plus(search_tit)
-                    g_url = f"https://www.google.com/search?q={q}"
-                    cq = urllib.parse.quote_plus(f"{profile.symbol} {search_tit[:50]}")
-                    c_url = f"https://cafef.vn/tim-kiem.chn?keywords={cq}"
+                    search_url = f"https://www.google.com/search?q={q}"
+                    cafef_url = f"https://s.cafef.vn/tin-doanh-nghiep/{profile.symbol.upper()}/Event.chn"
                     lines.append(
-                        f"• <b>{escape(dt)}</b> — <a href=\"{g_url}\">{escape(tit)}</a> "
-                        f"<i>[<a href=\"{c_url}\">CafeF ↗</a>]</i>"
+                        f"• <b>{escape(dt)}</b> — {escape(tit)} "
+                        f"<i>[<a href=\"{search_url}\">🔍 Tìm</a> | <a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
                     )
                 else:
                     lines.append(f"• {escape(raw_text)}")

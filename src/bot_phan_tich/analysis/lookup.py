@@ -232,25 +232,14 @@ _NEWS_WINDOW_DAYS = 180  # 6 thang gan nhat
 _NEWS_MAX_ITEMS = 8
 
 
-def _build_news_links(symbol: str, title: str, raw_url: str | None = None) -> tuple[str, str]:
+def _build_news_links(symbol: str, title: str, raw_url: str | None = None) -> tuple[str | None, str]:
     """Tao link dan toi bao/tap chi chinh thong (Google Search va CafeF)."""
     if raw_url and raw_url.startswith("http"):
         read_url = raw_url
     else:
-        search_title = title.strip()
-        if not search_title.upper().startswith(symbol.upper()):
-            search_title = f"{symbol} {search_title}"
-        q = urllib.parse.quote_plus(search_title)
-        read_url = f"https://www.google.com/search?q={q}"
+        read_url = None
 
-    clean = title.strip()
-    for prefix in (f"{symbol}:", f"{symbol} -", f"{symbol} :", f"{symbol}"):
-        if clean.upper().startswith(prefix.upper()):
-            clean = clean[len(prefix) :].strip()
-            break
-    words = clean.split()[:7]
-    cafef_q = urllib.parse.quote_plus(f"{symbol} {' '.join(words)}")
-    cafef_url = f"https://cafef.vn/tim-kiem.chn?keywords={cafef_q}"
+    cafef_url = f"https://s.cafef.vn/tin-doanh-nghiep/{symbol.upper()}/Event.chn"
     return read_url, cafef_url
 
 
