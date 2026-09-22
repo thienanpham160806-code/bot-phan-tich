@@ -1,6 +1,8 @@
 """Lenh /tracuu (/info): ho so + chi so chinh + cap nhat gan day cho mot ma."""
 from __future__ import annotations
 
+import asyncio
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -23,7 +25,7 @@ async def cmd_lookup(message: Message) -> None:
 
     async def work() -> str:
         try:
-            profile = lookup(symbol)
+            profile = await asyncio.to_thread(lookup, symbol)
             return lookup_card(profile)
         except Exception as exc:
             log.exception("Lenh /tracuu that bai cho %s", symbol)

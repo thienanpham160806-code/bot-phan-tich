@@ -1,6 +1,7 @@
 """Lenh chung: /start, /help, /market - va tien ich dung chung cho handlers khac."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 
 from aiogram import Router
@@ -58,7 +59,7 @@ async def cmd_market(message: Message) -> None:
         data = get_router()
         benchmark = get_universe_config().get("benchmark", "VNINDEX")
         end = date.today()
-        frame = data.ohlcv(benchmark, end - timedelta(days=30), end)
+        frame = await asyncio.to_thread(data.ohlcv, benchmark, end - timedelta(days=30), end)
         if frame.empty:
             await message.answer(error_card(f"Không có dữ liệu cho {benchmark}"))
             return

@@ -13,7 +13,7 @@ bot/handlers/screener.py va analysis/snapshot.py:is_stale()).
 from __future__ import annotations
 
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 import pandas as pd
@@ -56,6 +56,8 @@ class ScreenCriteria:
     divergence_type: str | None = None  # "bullish" / "bearish"
     min_volume_ratio: float | None = None
     max_volume_ratio: float | None = None
+    max_pe: float | None = None  # P/E toi da - can data/fundamentals_store.py (co the thieu)
+    min_roe: float | None = None  # ROE toi thieu (%) - can data/fundamentals_store.py
     alert_mode: bool = False  # "canh bao": duoi may (moi thung) HOAC phan ky am (OR)
     sort_ascending: bool = False
 
@@ -163,6 +165,14 @@ def _passes(row: pd.Series, criteria: ScreenCriteria) -> bool:
         vr = row.get("vol_ratio20")
         if pd.isna(vr) or vr > criteria.max_volume_ratio:
             return False
+    if criteria.max_pe is not None:
+        pe = row.get("pe")
+        if pd.isna(pe) or pe > criteria.max_pe:
+            return False
+    if criteria.min_roe is not None:
+        roe = row.get("roe")
+        if pd.isna(roe) or roe < criteria.min_roe:
+            return False
     return True
 
 
@@ -189,14 +199,26 @@ def screen_report(criteria: ScreenCriteria) -> ScreenReport:
         )
 
     as_of = snapshot.snapshot_last_updated()
-    note = None
+    notes = []
     if snapshot.is_stale():
         expected = snapshot.last_expected_session()
-        note = (
+        notes.append(
             f"⚠️ Dữ liệu chưa được tính cho phiên này (bản gần nhất tính lúc "
             f"{as_of:%d/%m/%Y %H:%M} — nếu bạn đang xem sau phiên {expected:%d/%m/%Y}, "
             "kết quả có thể cũ)."
         )
+
+    # Dieu kien theo chi so co ban (pe/roe) can data/fundamentals_store.py da
+    # duoc gop vao snapshot (xem analysis/snapshot.py:_merge_fundamentals()).
+    # Neu chua chay scripts/backfill_fundamentals.py, cot khong ton tai - BO
+    # QUA NHE NHANG dieu kien do (khong loai het ket qua) va bao ro cho nguoi dung.
+    if criteria.max_pe is not None and "pe" not in frame.columns:
+        criteria = replace(criteria, max_pe=None)
+        notes.append("Chưa có dữ liệu P/E (chạy `python scripts/backfill_fundamentals.py`).")
+    if criteria.min_roe is not None and "roe" not in frame.columns:
+        criteria = replace(criteria, min_roe=None)
+        notes.append("Chưa có dữ liệu ROE (chạy `python scripts/backfill_fundamentals.py`).")
+    note = " ".join(notes) or None
 
     mask = frame.apply(lambda row: _passes(row, criteria), axis=1)
     matched = frame.loc[mask].copy()
@@ -314,9 +336,13 @@ def parse_criteria(text: str) -> ScreenCriteria:
             criteria.min_total_score = _parse_float(key, value)
         elif key == "kl":
             criteria.min_volume_ratio = _parse_float(key, value)
+        elif key == "pe":
+            criteria.max_pe = _parse_float(key, value)
+        elif key == "roe":
+            criteria.min_roe = _parse_float(key, value)
         else:
             raise CriteriaParseError(
                 f"Tham số '{key}' không được hỗ trợ. Các tham số hợp lệ: "
-                f"san, kn, rsi, may, macd, phanky, diem, kl. Ví dụ: {USAGE_EXAMPLE}"
+                f"san, kn, rsi, may, macd, phanky, diem, kl, pe, roe. Ví dụ: {USAGE_EXAMPLE}"
             )
     return criteria

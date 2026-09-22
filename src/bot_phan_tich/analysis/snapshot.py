@@ -22,7 +22,7 @@ from datetime import time as dt_time
 import pandas as pd
 
 from ..config import get_paths
-from ..data import market_store
+from ..data import fundamentals_store, market_store
 from ..data.universe import liquid_universe
 from ..logging_conf import get_logger
 from .scoring import recommend
@@ -137,8 +137,22 @@ def build_snapshot(
         "build_snapshot: %d/%d ma thanh cong trong %.1fs", len(rows), len(symbols), elapsed
     )
 
+    frame = _merge_fundamentals(frame)
     frame.to_parquet(snapshot_path(), index=False)
     return frame
+
+
+def _merge_fundamentals(frame: pd.DataFrame) -> pd.DataFrame:
+    """Gop cot pe/pb/roe tu data/fundamentals_store.py neu kho da co (chay
+    scripts/backfill_fundamentals.py truoc). Ma nao khong co trong kho fundamentals
+    (chua backfill, hoac nguon khong tra duoc) se la NaN - screener.py tu bo qua
+    dieu kien loc theo fundamentals cho ma do, KHONG bia so."""
+    fundamentals = fundamentals_store.load_fundamentals()
+    if fundamentals.empty:
+        return frame
+    return frame.merge(
+        fundamentals[["symbol", "pe", "pb", "roe"]], on="symbol", how="left"
+    )
 
 
 def load_snapshot() -> pd.DataFrame:

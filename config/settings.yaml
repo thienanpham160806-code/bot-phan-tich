@@ -85,6 +85,12 @@ screener:
   warning:
     max_kumo_break_bars: 3     # gia moi thung xuong duoi may trong toi da N phien
 
+fundamentals:
+  # scripts/backfill_fundamentals.py (data/fundamentals_store.py). Ratios
+  # (P/E, P/B, ROE) doi cham theo quy/nam nen khong can nap lai moi ngay.
+  cache_days: 7
+  request_delay_seconds: 3.0   # gian cach giua cac ma, tranh cham rate limit nguon
+
 realtime:
   # Chua co API key tai thoi diem viet (xem docs/lay-api.md). Khi enabled la
   # false, data/realtime.py.get_realtime_provider() luon tra NullRealtimeProvider

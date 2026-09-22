@@ -167,12 +167,58 @@ def test_screen_helper_returns_only_results_list(isolated_snapshot):
     assert [r.symbol for r in results] == ["A"]
 
 
+# ------------------------------------------------------- loc theo chi so co ban
+def test_filters_by_max_pe_when_column_present(isolated_snapshot):
+    rows = [
+        _row("CHEAP", pe=10.0, roe=20.0),
+        _row("EXPENSIVE", pe=30.0, roe=20.0),
+        _row("NO_PE", pe=None, roe=20.0),
+    ]
+    _write_snapshot(rows)
+
+    report = screener_mod.screen_report(screener_mod.ScreenCriteria(max_pe=15.0))
+    symbols = {r.symbol for r in report.results}
+    assert symbols == {"CHEAP"}
+    assert report.note is None
+
+
+def test_filters_by_min_roe_when_column_present(isolated_snapshot):
+    rows = [
+        _row("HIGH_ROE", pe=10.0, roe=25.0),
+        _row("LOW_ROE", pe=10.0, roe=5.0),
+    ]
+    _write_snapshot(rows)
+
+    report = screener_mod.screen_report(screener_mod.ScreenCriteria(min_roe=15.0))
+    symbols = {r.symbol for r in report.results}
+    assert symbols == {"HIGH_ROE"}
+
+
+def test_pe_filter_gracefully_skipped_when_fundamentals_missing(isolated_snapshot):
+    """Chua chay backfill_fundamentals.py -> khong co cot pe/roe trong snapshot.
+    Dieu kien pe/roe phai duoc BO QUA (khong loai het ket qua), kem ghi chu ro."""
+    rows = [_row("A", total_score=1.0), _row("B", total_score=2.0)]
+    _write_snapshot(rows)  # _row() khong co pe/roe -> cot khong ton tai
+
+    report = screener_mod.screen_report(screener_mod.ScreenCriteria(max_pe=15.0))
+    symbols = {r.symbol for r in report.results}
+    assert symbols == {"A", "B"}
+    assert report.note is not None
+    assert "P/E" in report.note
+
+
 # --------------------------------------------------------------- parse_criteria
 def test_parse_criteria_basic_tokens():
     criteria = screener_mod.parse_criteria("san=HOSE kn=MUA rsi=quaban")
     assert criteria.exchanges == ["HOSE"]
     assert criteria.min_action == ACTION_BUY
     assert criteria.rsi_zone == "qua_ban"
+
+
+def test_parse_criteria_pe_and_roe_tokens():
+    criteria = screener_mod.parse_criteria("pe=15 roe=20")
+    assert criteria.max_pe == 15.0
+    assert criteria.min_roe == 20.0
 
 
 def test_parse_criteria_accepts_diacritics():

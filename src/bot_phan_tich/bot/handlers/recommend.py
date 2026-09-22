@@ -1,6 +1,7 @@
 """Lenh /khuyennghi (/rec, /kn) va /bieudo (/chart)."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 
 from aiogram import Router
@@ -44,8 +45,8 @@ async def cmd_recommend(message: Message) -> None:
 
     async def work() -> str:
         try:
-            frame = _load_frame(symbol)
-            rec = compute_recommendation(frame, symbol)
+            frame = await asyncio.to_thread(_load_frame, symbol)
+            rec = await asyncio.to_thread(compute_recommendation, frame, symbol)
             return recommendation_card(rec)
         except Exception as exc:
             log.exception("Lenh /khuyennghi that bai cho %s", symbol)
@@ -62,9 +63,11 @@ async def cmd_chart(message: Message) -> None:
         return
 
     try:
-        frame = _load_frame(symbol, days=300)
-        rec = compute_recommendation(frame, symbol)
-        png = candlestick_png(frame, symbol, stop_loss=rec.stop_loss, target=rec.target)
+        frame = await asyncio.to_thread(_load_frame, symbol, days=300)
+        rec = await asyncio.to_thread(compute_recommendation, frame, symbol)
+        png = await asyncio.to_thread(
+            candlestick_png, frame, symbol, stop_loss=rec.stop_loss, target=rec.target
+        )
         await message.answer_photo(
             BufferedInputFile(png, filename=f"{symbol}.png"),
             caption=f"{symbol} — biểu đồ kỹ thuật (mây Ichimoku, MACD, RSI)",
@@ -83,9 +86,11 @@ async def on_chart_callback(callback: CallbackQuery) -> None:
     symbol = callback.data.split(":", 1)[1]
     await callback.answer()
     try:
-        frame = _load_frame(symbol, days=300)
-        rec = compute_recommendation(frame, symbol)
-        png = candlestick_png(frame, symbol, stop_loss=rec.stop_loss, target=rec.target)
+        frame = await asyncio.to_thread(_load_frame, symbol, days=300)
+        rec = await asyncio.to_thread(compute_recommendation, frame, symbol)
+        png = await asyncio.to_thread(
+            candlestick_png, frame, symbol, stop_loss=rec.stop_loss, target=rec.target
+        )
         await callback.message.answer_photo(
             BufferedInputFile(png, filename=f"{symbol}.png"),
             caption=f"{symbol} — biểu đồ kỹ thuật",
@@ -103,8 +108,8 @@ async def on_rec_callback(callback: CallbackQuery) -> None:
     symbol = callback.data.split(":", 1)[1]
     await callback.answer()
     try:
-        frame = _load_frame(symbol)
-        rec = compute_recommendation(frame, symbol)
+        frame = await asyncio.to_thread(_load_frame, symbol)
+        rec = await asyncio.to_thread(compute_recommendation, frame, symbol)
         await callback.message.answer(recommendation_card(rec))
     except Exception as exc:
         log.exception("callback khuyen nghi that bai cho %s", symbol)

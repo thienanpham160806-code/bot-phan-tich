@@ -7,6 +7,7 @@ khong co PDF nao ca, van tra ve nhan xet dua tren du lieu co cau truc
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from aiogram import Bot, Router
@@ -59,6 +60,25 @@ async def _save_uploaded_pdf(message: Message, bot: Bot, symbol: str) -> Path | 
         return None
 
 
+def _build_commentary(symbol: str, pdf_path: Path | None) -> str:
+    """Toan bo logic nang (doc PDF, mining van ban, doc bao cao tai chinh) - chay
+    trong mot thread rieng qua asyncio.to_thread() o ca hai noi goi ben duoi,
+    khong duoc chan event loop cua bot."""
+    audit, hits = {"opinion": None, "evidence": None}, []
+    if pdf_path is not None:
+        text = extract_text(pdf_path)
+        audit = audit_opinion(text)
+        hits = risk_keywords(text)
+
+    financials = get_router().financials(symbol, period="year")
+    trend = trend_analysis(financials)
+
+    commentary = generate_commentary(symbol, audit, hits, trend)
+    if pdf_path is None:
+        commentary += _NO_PDF_NOTE
+    return commentary
+
+
 @router.message(Command("bctc", "fin"))
 async def cmd_finreport(message: Message, bot: Bot) -> None:
     symbol = parse_symbol(message)
@@ -70,19 +90,7 @@ async def cmd_finreport(message: Message, bot: Bot) -> None:
 
     async def work() -> str:
         try:
-            audit, hits = {"opinion": None, "evidence": None}, []
-            if pdf_path is not None:
-                text = extract_text(pdf_path)
-                audit = audit_opinion(text)
-                hits = risk_keywords(text)
-
-            financials = get_router().financials(symbol, period="year")
-            trend = trend_analysis(financials)
-
-            commentary = generate_commentary(symbol, audit, hits, trend)
-            if pdf_path is None:
-                commentary += _NO_PDF_NOTE
-            return commentary
+            return await asyncio.to_thread(_build_commentary, symbol, pdf_path)
         except Exception as exc:
             log.exception("Lenh /bctc that bai cho %s", symbol)
             return error_card(str(exc))
@@ -100,16 +108,7 @@ async def on_fin_callback(callback: CallbackQuery) -> None:
 
     pdf_path = _find_local_pdf(symbol)
     try:
-        audit, hits = {"opinion": None, "evidence": None}, []
-        if pdf_path is not None:
-            text = extract_text(pdf_path)
-            audit = audit_opinion(text)
-            hits = risk_keywords(text)
-        financials = get_router().financials(symbol, period="year")
-        trend = trend_analysis(financials)
-        commentary = generate_commentary(symbol, audit, hits, trend)
-        if pdf_path is None:
-            commentary += _NO_PDF_NOTE
+        commentary = await asyncio.to_thread(_build_commentary, symbol, pdf_path)
         await callback.message.answer(commentary)
     except Exception as exc:
         log.exception("callback bctc that bai cho %s", symbol)

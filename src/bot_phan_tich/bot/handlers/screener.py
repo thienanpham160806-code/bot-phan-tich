@@ -3,6 +3,8 @@ va tham so tuy chinh dang `/loc san=HOSE kn=MUA rsi=quaban`.
 """
 from __future__ import annotations
 
+import asyncio
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
@@ -61,7 +63,7 @@ async def cmd_screen(message: Message) -> None:
         return
 
     try:
-        report = screen_report(criteria)
+        report = await asyncio.to_thread(screen_report, criteria)
         text = screener_results_card(report.results, note=report.note)
     except Exception as exc:
         log.exception("Lenh /loc (tuy chinh) that bai")
@@ -87,7 +89,7 @@ async def on_screen_preset(callback: CallbackQuery) -> None:
 
     await callback.answer("Đang lọc...")
     try:
-        report = screen_report(factory())
+        report = await asyncio.to_thread(screen_report, factory())
         text = screener_results_card(report.results, note=report.note)
     except Exception as exc:
         log.exception("Loc theo bo dung san %s that bai", preset_key)

@@ -170,6 +170,24 @@ class DataRouter:
 
         return {p: pd.DataFrame() for p in ("income", "balance", "cashflow", "ratios")}
 
+    def ratios(self, symbol: str, period: str = "year") -> pd.DataFrame:
+        """Chi rieng bang chi so tai chinh (P/E, P/B, ROE...) - nhe hon
+        financials() vi khong keo them income/balance/cashflow. Dung cho
+        scripts/backfill_fundamentals.py (quet ca vu tru thanh khoan)."""
+        key = f"ratios/{symbol.upper()}/{period}"
+        cached = cache.read_frame(key, max_age=self._ttl_fund)
+        if cached is not None:
+            return cached
+        for name in self._fund_names:
+            try:
+                frame = self._get(name).ratios(symbol, period)  # type: ignore[attr-defined]
+                if not frame.empty:
+                    cache.write_frame(key, frame)
+                    return frame
+            except (Exception, SystemExit) as exc:
+                log.warning("ratios() that bai o nguon %s cho %s: %s", name, symbol, exc)
+        return pd.DataFrame()
+
     def industry_map(self) -> pd.DataFrame:
         key = "industry/map"
         cached = cache.read_frame(key, max_age=self._ttl_fund)
