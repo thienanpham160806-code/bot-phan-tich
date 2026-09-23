@@ -192,43 +192,59 @@ def test_bootstrap_fetches_full_history_on_empty_store(isolated_store, monkeypat
     assert list(market_store.load_symbols()["symbol"]) == ["FPT", "VNM"]
 
 
-def test_bootstrap_saves_incrementally_per_chunk(isolated_store, monkeypatch):
-    """Moi lo phai duoc LUU NGAY (khong doi tai het moi luot luu) - neu tien
-    trinh bi ngat giua chung (vd Render goi Free restart do vuot RAM), cac lo
-    da tai xong van con lai trong kho thay vi mat trang toan bo (da gap thuc
-    te: ban goc chi luu 1 lan o cuoi, bi restart giua luc tai la mat het)."""
+_FIVE_SYMBOLS = pd.DataFrame({"symbol": ["A", "B", "C", "D", "E"], "exchange": ["HOSE"] * 5})
+
+
+def _rows_for(symbols):
+    return _frame([[s.lower(), "2024-01-01", 10, 11, 9, 10.5, 1000] for s in symbols])
+
+
+def test_bootstrap_writes_all_chunks_one_at_a_time(isolated_store, monkeypatch):
     from bot_phan_tich.data import vietcap as vietcap_mod
 
-    symbols_frame = pd.DataFrame(
-        {"symbol": ["A", "B", "C", "D", "E"], "exchange": ["HOSE"] * 5}
-    )
-    monkeypatch.setattr(vietcap_mod, "fetch_all_symbols", lambda exchanges: symbols_frame)
-
-    saved_after_each_chunk: list[set] = []
+    monkeypatch.setattr(vietcap_mod, "fetch_all_symbols", lambda exchanges: _FIVE_SYMBOLS)
+    chunks_seen = []
 
     def fake_fetch_ohlcv_bulk(symbols, count_back, progress=None):
-        rows = [[s.lower(), "2024-01-01", 10, 11, 9, 10.5, 1000] for s in symbols]
-        return _frame(rows)
+        chunks_seen.append(list(symbols))
+        return _rows_for(symbols)
 
     monkeypatch.setattr(vietcap_mod, "fetch_ohlcv_bulk", fake_fetch_ohlcv_bulk)
-
-    real_save_ohlcv = market_store.save_ohlcv
-
-    def spy_save_ohlcv(frame, merge=True):
-        result = real_save_ohlcv(frame, merge=merge)
-        saved_after_each_chunk.append(set(market_store.load_ohlcv()["symbol"]))
-        return result
-
-    monkeypatch.setattr(market_store, "save_ohlcv", spy_save_ohlcv)
 
     total = market_store.bootstrap(chunk_size=2)
 
     assert total == 5
-    assert len(saved_after_each_chunk) == 3  # 5 ma, lo 2 -> 3 lo (2, 2, 1)
-    # kho PHAI lon dan qua tung lo, khong phai rong het cho toi lo cuoi
-    assert saved_after_each_chunk[0] == {"A", "B"}
-    assert saved_after_each_chunk[1] == {"A", "B", "C", "D"}
-    assert saved_after_each_chunk[2] == {"A", "B", "C", "D", "E"}
+    assert chunks_seen == [["A", "B"], ["C", "D"], ["E"]]
+    loaded = market_store.load_ohlcv()
+    assert set(loaded["symbol"]) == {"A", "B", "C", "D", "E"}
+    assert str(loaded["close"].dtype) == "float32"
+    assert not market_store.ohlcv_path().with_name("ohlcv.parquet.tmp").exists()
+
+
+def test_bootstrap_interrupted_leaves_no_partial_store(isolated_store, monkeypatch):
+    """Bi ngat giua chung -> kho KHONG duoc xuat hien mot phan. Neu kho con
+    450/1500 ma, lan sau bot tuong "da co kho" va chi refresh() cac ma do,
+    khong bao gio nap bu phan con thieu."""
+    from bot_phan_tich.data import vietcap as vietcap_mod
+
+    monkeypatch.setattr(vietcap_mod, "fetch_all_symbols", lambda exchanges: _FIVE_SYMBOLS)
+    calls = 0
+
+    def flaky_fetch(symbols, count_back, progress=None):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ConnectionError("mat mang giua chung")
+        return _rows_for(symbols)
+
+    monkeypatch.setattr(vietcap_mod, "fetch_ohlcv_bulk", flaky_fetch)
+
+    with pytest.raises(ConnectionError):
+        market_store.bootstrap(chunk_size=2)
+
+    assert market_store.load_ohlcv().empty
+    assert not market_store.ohlcv_path().exists()
+    assert not market_store.ohlcv_path().with_name("ohlcv.parquet.tmp").exists()
 
 
 def test_bootstrap_count_back_defaults_to_config(isolated_store, monkeypatch):

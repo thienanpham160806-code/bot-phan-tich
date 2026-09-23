@@ -618,7 +618,12 @@ def status_card(status) -> str:
 
     lines.append("<b>Snapshot khuyến nghị</b>")
     if status.snapshot_symbols:
-        freshness = "cũ hơn phiên gần nhất" if status.snapshot_stale else "mới"
+        if status.snapshot_partial:
+            freshness = "TẠM THỜI — chỉ danh sách theo dõi, đang chờ nạp toàn sàn"
+        elif status.snapshot_stale:
+            freshness = "cũ hơn phiên gần nhất"
+        else:
+            freshness = "mới"
         built_at = _stamp(status.snapshot_updated)
         lines.append(f"  {status.snapshot_symbols:,} mã, dựng lúc {built_at}")
         lines.append(f"  Tình trạng: {freshness}")

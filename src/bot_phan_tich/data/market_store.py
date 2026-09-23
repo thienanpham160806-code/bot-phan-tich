@@ -165,6 +165,16 @@ def last_updated() -> datetime | None:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=bot_timezone())
 
 
+def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
+    """Chuan hoa du lieu moi truoc khi ghi: dung cot, ma viet hoa, time la
+    datetime, gia/khoi luong float32."""
+    frame = frame[OHLCV_COLUMNS].copy()
+    frame["symbol"] = frame["symbol"].astype(str).str.upper()
+    frame["time"] = pd.to_datetime(frame["time"])
+    frame[_NUMERIC_COLUMNS] = frame[_NUMERIC_COLUMNS].astype("float32")
+    return frame
+
+
 def save_ohlcv(frame: pd.DataFrame, merge: bool = True) -> int:
     """Ghi OHLCV vao kho, gop voi du lieu cu (neu `merge`) va khu trung theo
     (symbol, time), giu ban ghi MOI hon khi trung. Tra ve tong so dong sau khi ghi.
@@ -177,10 +187,7 @@ def save_ohlcv(frame: pd.DataFrame, merge: bool = True) -> int:
     kieu category (khac nhau -> pandas bung ra object).
     """
     path = ohlcv_path()
-    frame = frame[OHLCV_COLUMNS].copy()
-    frame["symbol"] = frame["symbol"].astype(str).str.upper()
-    frame["time"] = pd.to_datetime(frame["time"])
-    frame[_NUMERIC_COLUMNS] = frame[_NUMERIC_COLUMNS].astype("float32")
+    frame = _normalize(frame)
 
     if merge and path.exists():
         existing = _read_ohlcv(path, None)
@@ -244,7 +251,16 @@ def refresh(count_back: int | None = None, progress: ProgressFn | None = None) -
     return save_ohlcv(frame, merge=True)
 
 
-_BOOTSTRAP_CHUNK_SIZE = 150  # xem docstring bootstrap(): giam dinh RAM + luu tang dan
+_BOOTSTRAP_CHUNK_SIZE = 150  # xem docstring bootstrap(): giam dinh RAM
+
+
+def _parquet_schema():
+    import pyarrow as pa
+
+    return pa.schema(
+        [("symbol", pa.string()), ("time", pa.timestamp("ns"))]
+        + [(col, pa.float32()) for col in _NUMERIC_COLUMNS]
+    )
 
 
 def bootstrap(
@@ -262,18 +278,16 @@ def bootstrap(
     tren kho rong no khong lam gi ca (dung y, tranh tu bia danh sach ma).
     bootstrap() moi thuc su tai danh sach ma + lich su day du tu dau.
 
-    Tai va LUU THEO TUNG LO NHO (`chunk_size` ma/lo, mac dinh 150) thay vi
-    mot lan cho ca 1.500+ ma - hai ly do:
-      1. Gioi han RAM dinh: goi Render Free chi co 512MB, giu ca ~1.100.000
-         dong (toan san, ~750 phien/ma) trong bo nho CUNG LUC truoc khi luu
-         co the vuot gioi han va bi container tu restart giua chung (da gap
-         thuc te: log cho thay tien trinh bi khoi dong lai dung luc dang
-         tai gan xong, mat trang toan bo tien do vi ban goc chi luu MOT LAN
-         o cuoi).
-      2. Luu tang dan: neu container co bi restart giua chung (bat ky ly do
-         gi), CAC LO DA TAI XONG van con nguyen trong file (merge=True tu
-         lo thu hai) - lan chay lai ke tiep (do is_stale()/kho van con thieu
-         ma) chi can tai bu phan con thieu, khong phai lam lai tu dau 100%.
+    Tai theo TUNG LO (`chunk_size` ma/lo) va ghi NOI TIEP vao mot file tam
+    bang pyarrow.ParquetWriter, xong het moi DOI TEN thanh kho that:
+      1. RAM: trong bo nho chi co mot lo tai mot thoi diem, khong phai doc
+         lai ca kho sau moi lo de gop (ban truoc lam vay, ton RAM tang dan
+         theo kich thuoc kho - nguy hiem tren may chu 512 MB).
+      2. Kho luon NGUYEN VEN: hoac chua co, hoac du ca san. Neu bi ngat giua
+         chung (loi mang, bi restart...) thi kho khong xuat hien, lan sau
+         bootstrap lai tu dau. Ban truoc luu tung lo thang vao kho - bi ngat
+         o 450/1500 ma thi kho "khong rong" nen lan sau chi goi refresh(),
+         ma refresh() chi cap nhat ma DA CO -> kho ket o 450 ma mai mai.
 
     `count_back` mac dinh lay tu config market_store.count_back_bootstrap
     (500 phien ~ 2 nam; ghi de bang bien MARKET_COUNT_BACK): van du cho moi
@@ -296,19 +310,42 @@ def bootstrap(
         return 0
     save_symbols(symbols_frame)
 
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
     symbols = symbols_frame["symbol"].tolist()
+    path = ohlcv_path()
+    tmp_path = path.with_name(path.name + ".tmp")
+    schema = _parquet_schema()
     total = 0
-    for i in range(0, len(symbols), chunk_size):
-        chunk = symbols[i : i + chunk_size]
-        chunk_progress = None
-        if progress is not None:
-            def chunk_progress(done: int, _total: int, offset: int = i) -> None:
-                progress(offset + done, len(symbols))
-        frame = fetch_ohlcv_bulk(chunk, count_back=count_back, progress=chunk_progress)
-        total = save_ohlcv(frame, merge=(i > 0))
-        log.info(
-            "market_store.bootstrap(): da tai %d/%d ma (kho hien co %d dong)",
-            min(i + chunk_size, len(symbols)), len(symbols), total,
-        )
+    try:
+        with pq.ParquetWriter(tmp_path, schema) as writer:
+            for i in range(0, len(symbols), chunk_size):
+                chunk = symbols[i : i + chunk_size]
+                chunk_progress = None
+                if progress is not None:
+                    def chunk_progress(done: int, _total: int, offset: int = i) -> None:
+                        progress(offset + done, len(symbols))
+                frame = fetch_ohlcv_bulk(chunk, count_back=count_back, progress=chunk_progress)
+                if frame.empty:
+                    continue
+                frame = _normalize(frame).drop_duplicates(subset=["symbol", "time"], keep="last")
+                frame = frame.sort_values(["symbol", "time"])
+                writer.write_table(pa.Table.from_pandas(frame, schema=schema, preserve_index=False))
+                total += len(frame)
+                log.info(
+                    "market_store.bootstrap(): da tai %d/%d ma (%d dong)",
+                    min(i + chunk_size, len(symbols)), len(symbols), total,
+                )
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+    if total == 0:
+        tmp_path.unlink(missing_ok=True)
+        log.warning("market_store.bootstrap(): khong tai duoc dong gia nao, kho giu nguyen")
+        return 0
+    tmp_path.replace(path)
+    _cache.pop(str(path), None)
     log.info("market_store.bootstrap(): xong %d ma, %d dong", len(symbols), total)
     return total

@@ -32,6 +32,7 @@ class SystemStatus:
     snapshot_symbols: int
     snapshot_updated: datetime | None
     snapshot_stale: bool
+    snapshot_partial: bool
     fundamentals_symbols: int
     fundamentals_updated: datetime | None
     build: snapshot.BuildStatus
@@ -53,6 +54,7 @@ def collect_system_status() -> SystemStatus:
         snapshot_symbols=len(snap),
         snapshot_updated=snapshot.snapshot_last_updated(),
         snapshot_stale=snapshot.is_stale(),
+        snapshot_partial=snapshot.is_partial_snapshot(),
         fundamentals_symbols=len(fundamentals),
         fundamentals_updated=fundamentals_store.fundamentals_last_updated(),
         build=snapshot.get_build_status(),

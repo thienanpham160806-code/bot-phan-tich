@@ -149,7 +149,7 @@ def fresh_status(monkeypatch):
 
 
 async def test_update_records_error_instead_of_swallowing(
-    isolated_paths, fresh_status, monkeypatch
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
 ):
     def broken_bootstrap(progress=None):
         raise ConnectionError("Vietcap timeout")
@@ -166,7 +166,9 @@ async def test_update_records_error_instead_of_swallowing(
     assert "thất bại" in message and "Vietcap timeout" in message and "/trangthai" in message
 
 
-async def test_update_reports_empty_source_as_error(isolated_paths, fresh_status, monkeypatch):
+async def test_update_reports_empty_source_as_error(
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
+):
     monkeypatch.setattr(market_store, "bootstrap", lambda progress=None: 0)
 
     await snapshot_mod.update_market_data(force=True)
@@ -175,7 +177,7 @@ async def test_update_reports_empty_source_as_error(isolated_paths, fresh_status
 
 
 async def test_update_success_builds_snapshot_and_reports_progress(
-    isolated_paths, fresh_status, monkeypatch
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
 ):
     seen_progress = []
 
@@ -195,7 +197,9 @@ async def test_update_success_builds_snapshot_and_reports_progress(
     assert set(snapshot_mod.load_snapshot()["symbol"]) == {"AAA", "BBB"}
 
 
-async def test_concurrent_updates_do_not_overlap(isolated_paths, fresh_status, monkeypatch):
+async def test_concurrent_updates_do_not_overlap(
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
+):
     """Luong khoi dong va lich 15h05 cung ghi mot file parquet - khong duoc chay chong."""
     import asyncio
     import threading
@@ -241,3 +245,100 @@ def test_progress_text_shows_counts_and_eta(fresh_status):
 def test_data_unavailable_message_when_never_ran(fresh_status):
     message = snapshot_mod.data_unavailable_message()
     assert "Chưa có dữ liệu" in message and "/trangthai" in message
+
+
+# ------------------------------------------ du lieu toi thieu khi kho rong (Phan 5)
+@pytest.fixture
+def fake_watchlist_source(monkeypatch):
+    """Nguon gia gia lap: danh sach theo doi AAA, BBB; tai tuc thi."""
+    from bot_phan_tich.data import vietcap as vietcap_mod
+
+    monkeypatch.setattr(snapshot_mod, "get_universe_config", lambda: {"watchlist": ["aaa", "bbb"]})
+    monkeypatch.setattr(
+        vietcap_mod, "fetch_all_symbols",
+        lambda exchanges: pd.DataFrame(
+            {"symbol": ["AAA", "BBB", "CCC"], "exchange": ["HOSE", "HNX", "HOSE"]}
+        ),
+    )
+    monkeypatch.setattr(
+        vietcap_mod, "fetch_ohlcv_bulk",
+        lambda symbols, count_back, progress=None: pd.concat(
+            [_random_walk(s, 300, seed=i) for i, s in enumerate(symbols)], ignore_index=True
+        ),
+    )
+
+
+async def test_empty_store_serves_watchlist_snapshot_before_full_bootstrap(
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
+):
+    from bot_phan_tich.analysis import screener
+
+    seen_during_bootstrap = {}
+
+    def slow_full_bootstrap(progress=None):
+        # Trong luc nap toan san: /loc PHAI co ket qua that tu ban tam.
+        report = screener.screen_report(screener.ScreenCriteria())
+        seen_during_bootstrap["symbols"] = {r.symbol for r in report.results}
+        seen_during_bootstrap["note"] = report.note
+        seen_during_bootstrap["store_empty"] = market_store.load_ohlcv().empty
+        _seed_store({"AAA": 300, "BBB": 300, "CCC": 300})
+        return 900
+
+    monkeypatch.setattr(market_store, "bootstrap", slow_full_bootstrap)
+
+    await snapshot_mod.update_market_data(force=False)
+
+    assert seen_during_bootstrap["symbols"] == {"AAA", "BBB"}
+    assert "Dữ liệu tạm thời: 2 mã" in seen_during_bootstrap["note"]
+    # ban tam KHONG duoc ghi vao kho - kho chi xuat hien khi du ca san
+    assert seen_during_bootstrap["store_empty"] is True
+    # xong toan san: snapshot day du thay the ban tam
+    assert snapshot_mod.is_partial_snapshot() is False
+    assert set(snapshot_mod.load_snapshot()["symbol"]) == {"AAA", "BBB", "CCC"}
+
+
+async def test_failed_bootstrap_keeps_watchlist_results_with_error_note(
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
+):
+    from bot_phan_tich.analysis import screener
+
+    def broken_bootstrap(progress=None):
+        raise ConnectionError("Vietcap chan IP")
+
+    monkeypatch.setattr(market_store, "bootstrap", broken_bootstrap)
+
+    await snapshot_mod.update_market_data(force=False)
+
+    report = screener.screen_report(screener.ScreenCriteria())
+    assert {r.symbol for r in report.results} == {"AAA", "BBB"}  # khong bao gio trong tron
+    assert snapshot_mod.is_partial_snapshot() is True
+    assert "Vietcap chan IP" in report.note
+
+
+async def test_partial_snapshot_triggers_update_even_if_fresh(
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
+):
+    """Snapshot tam vua dung (con "moi") nhung chua du toan san -> lan khoi
+    dong sau van phai nap toan san, khong duoc bo qua vi is_stale() = False."""
+    snapshot_mod.build_quick_snapshot()
+    calls = []
+    monkeypatch.setattr(market_store, "bootstrap", lambda progress=None: calls.append(1) or 0)
+
+    ran = await snapshot_mod.update_market_data(force=False)
+
+    assert ran is True and calls == [1]
+
+
+async def test_quick_snapshot_does_not_replace_full_snapshot(
+    isolated_paths, fresh_status, fake_watchlist_source, monkeypatch
+):
+    _seed_store({"AAA": 300, "BBB": 300, "CCC": 300})
+    snapshot_mod.build_snapshot(["AAA", "BBB", "CCC"])
+    market_store.ohlcv_path().unlink()  # kho mat, snapshot day du van con
+    market_store._cache.clear()
+    monkeypatch.setattr(market_store, "bootstrap", lambda progress=None: 0)
+
+    await snapshot_mod.update_market_data(force=False)
+
+    assert set(snapshot_mod.load_snapshot()["symbol"]) == {"AAA", "BBB", "CCC"}
+    assert snapshot_mod.is_partial_snapshot() is False

@@ -77,8 +77,10 @@ Cấu hình Vietcap (nguồn dự phòng, **không cần API key**): qua thư vi
 
 ## 3. Nạp dữ liệu và chạy bot
 
-Ba bước theo đúng thứ tự — **bắt buộc** phải chạy bước 1 và 2 trước khi mở
-bot lần đầu, nếu không `/loc` và `/tinhieu` sẽ báo "đang chuẩn bị dữ liệu":
+Ba bước theo đúng thứ tự. Nếu bỏ qua bước 1 và 2, bot vẫn tự nạp khi khởi
+động (dùng tạm ~12 mã trong danh sách theo dõi trong vài giây đầu, rồi nạp
+toàn sàn ở nền — theo dõi bằng `/trangthai`), nhưng chạy trước sẽ có ngay
+dữ liệu đầy đủ:
 
 ```bash
 # 1. Nạp giá TOÀN SÀN (HOSE/HNX/UPCOM) vào kho parquet cục bộ (data/market/ohlcv.parquet).
@@ -145,6 +147,7 @@ Giao diện bot được thiết kế theo 3 nhóm nhu cầu cốt lõi, hỗ tr
 | `/watchlist` | `/danhsach` | Xem danh sách cổ phiếu theo dõi kèm trạng thái khuyến nghị hôm nay |
 | `/unsub MA` | `/bosach` | Bỏ theo dõi một mã |
 | `/canhbao` | `/alerts` | Bật/tắt cảnh báo tự động cuối phiên (15:05 mỗi ngày giao dịch) |
+| `/trangthai` | `/status` | Tình trạng dữ liệu: kho giá, snapshot (mới/cũ/tạm thời), tiến độ nạp nền, lỗi gần nhất, RAM đang dùng |
 | `/help` | `/start` | Menu hướng dẫn chi tiết và bàn phím tương tác nhanh |
 
 `/loc` hỗ trợ các khoá lọc tuỳ chỉnh: `san` (sàn), `kn` (khuyến nghị tối
@@ -213,7 +216,8 @@ phòng theo thứ tự khai báo ở `config/settings.yaml: data.price_sources` 
 | Tất cả nguồn đều lỗi | Trả dữ liệu từ cache kèm nhãn thời điểm, bot **không** sập |
 | Dữ liệu bẩn (BOM, CRLF, trùng lặp) | `data/cleaner.py` chuẩn hoá trước khi ghi cache |
 | Mã không tồn tại / chưa đủ lịch sử | Handler bắt lỗi cụ thể, trả tin nhắn dễ hiểu qua `bot/formatters.py:error_card()` |
-| `/loc`, `/tinhieu` báo "đang chuẩn bị dữ liệu" | Chưa chạy `backfill_data.py`/`build_snapshot.py` lần nào, hoặc bot vừa khởi động và đang tự cập nhật ở nền (`ensure_fresh_in_background()`) — đợi vài phút rồi thử lại |
+| Bot vừa khởi động trên máy trắng dữ liệu (lần đầu, hoặc Render gói Free vừa restart) | Bot tự dựng dữ liệu **tạm** cho danh sách theo dõi (`config/universe.yaml`, ~12 mã) trong vài giây — `/loc`, `/tinhieu` có kết quả ngay kèm ghi chú "Dữ liệu tạm thời" — rồi nạp toàn sàn ở nền (vài phút) |
+| `/loc`, `/tinhieu` báo đang nạp hoặc báo lỗi | Thông báo nói rõ tiến độ (vd "450/1500 mã, khoảng 2 phút nữa") hoặc lỗi của lần nạp gần nhất. Gõ `/trangthai` để xem chi tiết |
 
 ---
 

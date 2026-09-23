@@ -203,11 +203,24 @@ def _to_results(frame: pd.DataFrame) -> list[ScreenResult]:
     ]
 
 
-def _freshness_note(as_of: datetime | None) -> str | None:
-    """Ghi chu ve do moi cua snapshot dang doc: dang cap nhat o nen (kem tien
-    do) hoac da cu hon phien gan nhat. None neu du lieu moi va khong co gi chay."""
+def _freshness_note(as_of: datetime | None, n_symbols: int) -> str | None:
+    """Ghi chu ve do moi cua snapshot dang doc: ban TAM (chi danh sach theo
+    doi), dang cap nhat o nen (kem tien do) hoac da cu hon phien gan nhat.
+    None neu du lieu day du, moi va khong co gi dang chay."""
     stamp = f"{as_of:%d/%m/%Y %H:%M}" if as_of else "không rõ"
     running = snapshot.progress_text()
+    if snapshot.is_partial_snapshot():
+        error = snapshot.get_build_status().last_error
+        if running:
+            tail = f"{running}."
+        elif error:
+            tail = f"Lần nạp toàn sàn gần nhất thất bại: {error}."
+        else:
+            tail = "Đang nạp toàn sàn ở nền."
+        return (
+            f"📌 Dữ liệu tạm thời: {n_symbols} mã (danh sách theo dõi). {tail} "
+            "Gõ /trangthai để xem chi tiết."
+        )
     if running:
         return f"⏳ {running}. Kết quả dưới đây từ bản tính lúc {stamp}."
     if snapshot.is_stale():
@@ -228,7 +241,7 @@ def screen_report(criteria: ScreenCriteria) -> ScreenReport:
         )
 
     as_of = snapshot.snapshot_last_updated()
-    freshness = _freshness_note(as_of)
+    freshness = _freshness_note(as_of, len(frame))
     notes = [freshness] if freshness else []
 
     # Dieu kien theo chi so co ban (pe/roe) can data/fundamentals_store.py da
@@ -280,7 +293,7 @@ def today_signals(limit: int | None = None) -> SignalReport:
         return SignalReport(buy=[], sell=[], as_of=None, note=snapshot.data_unavailable_message())
 
     as_of = snapshot.snapshot_last_updated()
-    note = _freshness_note(as_of)
+    note = _freshness_note(as_of, len(frame))
 
     limit = limit or get_settings().get("screener.max_results", 15)
 
