@@ -216,11 +216,11 @@ def _build_reasons(macd_st: dict, rsi_st: dict, ichi_st: dict, divergence: dict)
     reasons = [_macd_reason(macd_st), _rsi_reason(rsi_st), _ichimoku_reason(ichi_st)]
     if divergence.get("type") is not None:
         note = (
-            "phân kỳ dương (đà giảm suy yếu)"
+            "tín hiệu tạo đáy (phân kỳ dương) — áp lực bán cạn kiệt, khả năng đảo chiều tăng cao."
             if divergence["type"] == "bullish"
-            else "phân kỳ âm (đà tăng suy yếu)"
+            else "tín hiệu tạo đỉnh (phân kỳ âm) — giá tăng nhưng dòng tiền suy yếu, cảnh báo rủi ro đảo chiều giảm."
         )
-        reasons[0] = f"{reasons[0]} Ngoài ra giá và MACD đang xuất hiện {note}."
+        reasons[0] = f"{reasons[0]}\n🚨 **Lưu ý:** Đang xuất hiện {note}"
     return reasons
 
 
@@ -228,52 +228,52 @@ def _macd_reason(state: dict) -> str:
     cross, bars_since = state.get("cross"), state.get("bars_since_cross")
     above = state.get("above_zero")
     if cross == "golden":
-        vi_tri = "trên đường 0 (tín hiệu mạnh)" if above else "dưới đường 0"
-        return f"MACD vừa giao cắt vàng {vi_tri}, {bars_since} phiên trước."
+        vi_tri = "vùng tích cực (trên 0)" if above else "vùng thấp (dưới 0)"
+        return f"🌊 **Dòng tiền (MACD):** Vừa cho tín hiệu MUA (cắt lên) từ {vi_tri} vào {bars_since} phiên trước."
     if cross == "death":
-        vi_tri = "dưới đường 0 (tín hiệu mạnh)" if not above else "trên đường 0"
-        return f"MACD vừa giao cắt chết {vi_tri}, {bars_since} phiên trước."
+        vi_tri = "vùng rủi ro (dưới 0)" if not above else "vùng cao (trên 0)"
+        return f"⚠️ **Dòng tiền (MACD):** Vừa cho tín hiệu BÁN (cắt xuống) từ {vi_tri} vào {bars_since} phiên trước."
     slope = state.get("hist_slope")
     if slope is not None and slope < 0:
-        return "Histogram MACD đang thu hẹp, động lượng suy yếu dù chưa giao cắt."
+        return "⚠️ **Dòng tiền (MACD):** Lực mua đang yếu dần đi, phe bán đang chiếm ưu thế."
     if slope is not None and slope > 0:
-        return "Histogram MACD đang mở rộng, động lượng đang mạnh lên."
-    return "MACD chưa cho tín hiệu rõ ràng do thiếu dữ liệu."
+        return "🌊 **Dòng tiền (MACD):** Lực mua đang cải thiện tích cực, theo dõi chờ điểm mua xác nhận."
+    return "💡 **Dòng tiền (MACD):** Chưa có tín hiệu rõ ràng."
 
 
 def _rsi_reason(state: dict) -> str:
     value, zone = state.get("value"), state.get("zone")
     upper, lower = state.get("upper"), state.get("lower")
     if value is None:
-        return "Chưa đủ dữ liệu để tính RSI."
+        return "💡 **Tâm lý (RSI):** Chưa đủ dữ liệu."
     if zone == "qua_mua":
-        return f"RSI đang ở {value:.0f}, vượt ngưỡng thích ứng {upper:.0f} — vùng quá mua."
+        return f"🔥 **Tâm lý (RSI):** Mức {value:.0f} (Cao) — Lực mua đang quá hưng phấn (quá mua), rủi ro điều chỉnh ngắn hạn đang tăng."
     if zone == "qua_ban":
-        return f"RSI đang ở {value:.0f}, dưới ngưỡng thích ứng {lower:.0f} — vùng quá bán."
-    return f"RSI đang ở {value:.0f}, trong vùng trung tính ({lower:.0f}-{upper:.0f})."
+        return f"❄️ **Tâm lý (RSI):** Mức {value:.0f} (Thấp) — Cổ phiếu bị bán tháo quá mức (quá bán), có khả năng sớm xuất hiện nhịp phục hồi."
+    return f"⚖️ **Tâm lý (RSI):** Mức {value:.0f} (Trung tính) — Cung cầu đang cân bằng, diễn biến khá ổn định."
 
 
 def _ichimoku_reason(state: dict) -> str:
     pos = state.get("price_vs_kumo")
     if pos is None:
-        return "Chưa đủ dữ liệu để xác định vị trí so với mây Ichimoku."
+        return "💡 **Xu hướng (Ichimoku):** Chưa đủ dữ liệu."
     labels = {
-        "tren_may": "trên mây Kumo",
-        "trong_may": "trong mây Kumo",
-        "duoi_may": "dưới mây Kumo",
+        "tren_may": "nằm TRÊN mây (xu hướng TĂNG vững chắc)",
+        "trong_may": "nằm TRONG mây (trạng thái đi ngang tích lũy, chưa rõ xu hướng)",
+        "duoi_may": "nằm DƯỚI mây (xu hướng GIẢM, rủi ro cao)",
     }
     label = labels[pos]
     cross, _, strength = state.get("tk_cross", (None, None, None))
     if cross is not None:
-        huong = "tăng" if cross == "golden" else "giảm"
+        huong = "cắt lên báo hiệu đà tăng ngắn hạn" if cross == "golden" else "cắt xuống báo hiệu đà giảm ngắn hạn"
         muc_manh = {
-            "manh": "tín hiệu mạnh",
-            "trung_tinh": "tín hiệu trung tính",
-            "yeu": "tín hiệu yếu",
+            "manh": "rất đáng tin cậy",
+            "trung_tinh": "ở mức vừa phải",
+            "yeu": "độ tin cậy thấp",
         }
         do_manh = muc_manh.get(strength, "")
-        return f"Giá đang {label}, Tenkan/Kijun vừa giao cắt {huong} ({do_manh})."
-    return f"Giá đang {label}."
+        return f"📈 **Xu hướng (Ichimoku):** Giá đang {label}. Ngoài ra, chỉ báo ngắn hạn vừa {huong} ({do_manh})."
+    return f"📈 **Xu hướng (Ichimoku):** Giá đang {label}."
 
 
 def recommend(
