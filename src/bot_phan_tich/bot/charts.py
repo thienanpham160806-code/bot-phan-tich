@@ -2,21 +2,20 @@
 
 Ve thang vao bo nho dem roi gui, KHONG ghi tep tam ra o dia - tranh rac va
 tranh loi khi nhieu nguoi dung goi cung luc.
+
+matplotlib (~10 MB + Pillow) chi nap o lan ve dau tien, khong nap luc khoi
+dong bot - de RAM nen thap hon tren may/goi Render it bo nho.
 """
 from __future__ import annotations
 
 import io
 
-import matplotlib
+import numpy as np
+import pandas as pd
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-
-from ..indicators.ichimoku import ichimoku  # noqa: E402
-from ..indicators.macd import macd  # noqa: E402
-from ..indicators.rsi import adaptive_bands, rsi  # noqa: E402
+from ..indicators.ichimoku import ichimoku
+from ..indicators.macd import macd
+from ..indicators.rsi import adaptive_bands, rsi
 
 _UP_COLOR = "#2e7d52"
 _DOWN_COLOR = "#c0392b"
@@ -34,6 +33,11 @@ def candlestick_png(
     """
     if frame.empty:
         raise ValueError("Khong co du lieu de ve")
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
 
     ichi = ichimoku(frame)
     macd_lines = macd(frame)
