@@ -1,0 +1,13 @@
+# Khong dua bi mat va du lieu may ca nhan vao image (Render build tu git nen
+# von khong co, nhung `docker build` tren may se chep ca thu muc).
+.env
+data/
+logs/
+outputs/
+artifacts/
+.git/
+.claude/
+.venv/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
