@@ -48,6 +48,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 import requests
@@ -356,6 +357,23 @@ def _request_json_public(
             time.sleep(wait)
 
 
+def probe_endpoint(
+    method: str, path: str, payload: dict | None = None, timeout: float = 15
+) -> tuple[int | None, Any, str | None]:
+    """Goi thu endpoint cong khai DUNG MOT LAN (khong thu lai) - cho
+    scripts/diagnose.py: can thay dung ma HTTP (vd 403 khi bi chan IP) thay
+    vi bi che boi vong thu lai. Tra (ma HTTP, JSON hoac None, loi hoac None)."""
+    url = f"{_PUBLIC_BASE}{path}"
+    try:
+        resp = _public_session.request(method, url, json=payload, timeout=timeout)
+    except requests.RequestException as exc:
+        return None, None, f"{type(exc).__name__}: {exc}"
+    try:
+        return resp.status_code, resp.json(), None
+    except ValueError:
+        return resp.status_code, None, f"phan hoi khong phai JSON: {resp.text[:120]!r}"
+
+
 def _chunks(items: list, size: int):
     for i in range(0, len(items), size):
         yield items[i : i + size]
@@ -453,6 +471,7 @@ def _fetch_ohlcv_one(symbol: str, count_back: int, to_ts: int) -> pd.DataFrame |
 def fetch_ohlcv_bulk(
     symbols: list[str], count_back: int, to_ts: int | None = None,
     max_workers: int = _DEFAULT_CONCURRENCY, delay: float = 0.3,
+    progress: Callable[[int, int], None] | None = None,
 ) -> pd.DataFrame:
     """Lich su OHLCV cho danh sach ma.
 
@@ -467,6 +486,9 @@ def fetch_ohlcv_bulk(
     Tra ve DataFrame dung dinh dang data/market_store.py can:
     symbol, time, open, high, low, close, volume. Ma nao loi/rong thi bo
     qua (ghi log), khong lam hong ca lot.
+
+    `progress(done, total)` duoc goi sau moi ma (ke ca ma loi) - dung de hien
+    tien do trong /trangthai va thong bao cua /loc.
     """
     to_ts = to_ts if to_ts is not None else int(time.time())
     frames: list[pd.DataFrame] = []
@@ -484,6 +506,8 @@ def fetch_ohlcv_bulk(
         for future in as_completed(future_to_symbol):
             symbol = future_to_symbol[future]
             done += 1
+            if progress is not None:
+                progress(done, len(symbols))
             try:
                 frame = future.result()
             except Exception as exc:

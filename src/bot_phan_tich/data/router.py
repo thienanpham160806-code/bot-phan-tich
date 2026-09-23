@@ -14,12 +14,12 @@ cung lam vay.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from functools import lru_cache
 
 import pandas as pd
 
-from ..config import get_settings
+from ..config import get_settings, now_local
 from ..logging_conf import get_logger
 from . import cache, market_store
 from .base import FundamentalProvider, PriceProvider, ProviderError
@@ -76,7 +76,7 @@ class DataRouter:
             stored = market_store.load_ohlcv([symbol])
             if not stored.empty:
                 last_stored_date = pd.to_datetime(stored.iloc[-1]["time"]).date()
-                now_dt = datetime.now()
+                now_dt = now_local()  # gio VN, khong phai gio may chu (Render chay UTC)
                 is_weekday = now_dt.weekday() < 5
                 is_after_close = (now_dt.hour > 15) or (now_dt.hour == 15 and now_dt.minute >= 15)
                 today = now_dt.date()
@@ -90,7 +90,7 @@ class DataRouter:
             cached = cache.read_frame(key, max_age=self._ttl_daily)
             if cached is not None and not cached.empty:
                 last_cached_date = pd.to_datetime(cached.iloc[-1]["time"]).date()
-                now_dt = datetime.now()
+                now_dt = now_local()
                 is_weekday = now_dt.weekday() < 5
                 is_after_close = (now_dt.hour > 15) or (now_dt.hour == 15 and now_dt.minute >= 15)
                 today = now_dt.date()

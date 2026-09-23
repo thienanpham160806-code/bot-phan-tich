@@ -1,6 +1,16 @@
 """Cac nhom lenh cua bot."""
 
-from . import common, finreport, lookup, news, recommend, screener, signals, watchlist
+from . import (
+    common,
+    finreport,
+    lookup,
+    news,
+    recommend,
+    screener,
+    signals,
+    status,
+    watchlist,
+)
 
 ROUTERS = [
     common.router,
@@ -11,6 +21,7 @@ ROUTERS = [
     signals.router,
     finreport.router,
     watchlist.router,
+    status.router,
 ]
 
 __all__ = ["ROUTERS"]

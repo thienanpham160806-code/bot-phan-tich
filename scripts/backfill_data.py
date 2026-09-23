@@ -4,17 +4,18 @@ Mac dinh tai TOAN BO co phieu HOSE/HNX/UPCOM (khong con can co --full-universe
 nhu truoc). Dung `--watchlist-only` khi dang phat trien, muon chay nhanh voi
 vai ma trong config/universe.yaml.
 
-Lan dau (chua co kho): tai `countBack=750` (~3 nam) cho MOI ma.
-Cac lan sau (da co kho): CHI tai `countBack=10` (du bu vai phien nghi/loi
-mang) roi gop vao kho cu, khu trung theo (symbol, time) - nhanh hon nhieu vi
-khong phai tai lai het lich su moi lan.
+Lan dau (chua co kho): tai `market_store.count_back_bootstrap` phien (mac
+dinh 500, ~2 nam; ghi de bang bien MARKET_COUNT_BACK) cho MOI ma.
+Cac lan sau (da co kho): CHI tai `market_store.count_back_refresh` phien
+(mac dinh 10, du bu vai phien nghi/loi mang) roi gop vao kho cu, khu trung
+theo (symbol, time) - nhanh hon nhieu vi khong phai tai lai het lich su.
 
 Nguon: endpoint cong khai cua bang gia Vietcap (data/vietcap.py:
 fetch_all_symbols/fetch_ohlcv_bulk), khong can API key.
 
 Cach chay:
     python scripts/backfill_data.py                  # toan san, tang dan neu da co kho
-    python scripts/backfill_data.py --full            # ep tai lai tu dau (750 phien)
+    python scripts/backfill_data.py --full            # ep tai lai tu dau
     python scripts/backfill_data.py --watchlist-only  # chi 12 ma trong universe.yaml, phat trien
 """
 from __future__ import annotations
@@ -32,9 +33,6 @@ from bot_phan_tich.data.vietcap import fetch_all_symbols, fetch_ohlcv_bulk  # no
 from bot_phan_tich.logging_conf import get_logger, setup_logging  # noqa: E402
 
 log = get_logger("backfill")
-
-_FIRST_RUN_BARS = 750  # ~3 nam
-_INCREMENTAL_BARS = 10  # du bu vai phien nghi/loi mang giua 2 lan chay
 
 
 def main() -> None:
@@ -65,7 +63,11 @@ def main() -> None:
 
     existing = market_store.last_updated()
     is_first_run = args.full or existing is None
-    count_back = _FIRST_RUN_BARS if is_first_run else _INCREMENTAL_BARS
+    count_back = int(
+        settings.get("market_store.count_back_bootstrap", 500)
+        if is_first_run
+        else settings.get("market_store.count_back_refresh", 10)
+    )
     log.info(
         "%s: countBack=%d cho %d ma",
         "Tai lan dau" if is_first_run else "Cap nhat tang dan", count_back, len(symbols),

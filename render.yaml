@@ -22,3 +22,12 @@ services:
         sync: false
       - key: LOG_LEVEL
         value: INFO
+      # Cau hinh nhe cho goi Free (512 MB RAM, KHONG co dia luu ben vung: moi
+      # lan restart bot phai nap lai kho). Vu tru rut gon 300 ma thanh khoan
+      # nhat, 400 phien/ma (van du cho moi chi bao: RSI thich ung can 252).
+      - key: UNIVERSE_MAX_SYMBOLS
+        value: "300"
+      - key: MARKET_COUNT_BACK
+        value: "400"
+      - key: SNAPSHOT_MAX_WORKERS
+        value: "1"

@@ -17,9 +17,8 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, Message, TelegramObject
 
 from ..alerts.eod import run_eod_scan
-from ..analysis.snapshot import build_snapshot, ensure_fresh_in_background
+from ..analysis.snapshot import ensure_fresh_in_background, update_market_data
 from ..config import get_secrets
-from ..data import market_store
 from ..data.cache import get_news_subscribers, init_db, save_macro_news_items
 from ..data.macro_news import fetch_all_macro_news
 from ..logging_conf import get_logger, setup_logging
@@ -54,29 +53,17 @@ class ErrorGuard(BaseMiddleware):
 async def daily_scan_job(bot: Bot) -> None:
     """Cong viec cuoi phien, chay theo `bot.scan_cron` (xem bot/scheduler.py):
 
-      1. Cap nhat tang dan kho gia toan san (market_store.refresh()).
-      2. Dung lai snapshot khuyen nghi (analysis.snapshot.build_snapshot()) -
-         de /loc va /tinhieu tra ket qua ngay lap tuc, khong tinh lai.
-      3. Quet canh bao (alerts.eod.run_eod_scan()) va gui gop cho tung chat.
+      1. Cap nhat kho gia + dung lai snapshot (analysis.snapshot.
+         update_market_data - cung luong voi luc khoi dong, co khoa chong
+         chay chong, ghi trang thai/loi cho /trangthai).
+      2. Quet canh bao (alerts.eod.run_eod_scan()) va gui gop cho tung chat.
 
-    Ca 3 buoc deu CHAY TRONG THREAD RIENG (asyncio.to_thread) - day la cong
-    viec nang (I/O mang + tinh CPU tren toan vu tru), khong duoc chan event
-    loop cua bot trong luc chay, neu khong bot se "dung hinh" ca budi.
+    Moi buoc nang CHAY TRONG THREAD RIENG (asyncio.to_thread), khong chan
+    event loop cua bot.
     """
-    try:
-        # Kho co the da bi xoa trang giua chung (vd container Render goi
-        # Free spin-down roi wake lai, mat het /data) - refresh() tren kho
-        # rong khong lam gi ca, phai bootstrap() lai tu dau (xem market_store.py).
-        if await asyncio.to_thread(lambda: market_store.load_ohlcv().empty):
-            updated_rows = await asyncio.to_thread(market_store.bootstrap)
-            log.info("daily_scan_job: market_store.bootstrap() -> %d dong", updated_rows)
-        else:
-            updated_rows = await asyncio.to_thread(market_store.refresh)
-            log.info("daily_scan_job: market_store.refresh() -> %d dong", updated_rows)
-        snapshot_frame = await asyncio.to_thread(build_snapshot)
-        log.info("daily_scan_job: build_snapshot() -> %d ma", len(snapshot_frame))
-    except Exception:
-        log.exception("daily_scan_job: cap nhat kho/snapshot that bai")
+    # force=True: 15h05 van truoc moc 15h10 cua is_stale(), nen snapshot hom
+    # qua chua bi coi la cu - nhung phien hom nay da dong, phai tinh lai.
+    await update_market_data(force=True)
 
     try:
         alerts = await asyncio.to_thread(run_eod_scan)
@@ -119,7 +106,7 @@ async def hourly_news_job(bot: Bot) -> None:
 
 
 async def run() -> None:
-    setup_logging()
+    setup_logging("logs/bot.log")
     init_db()
 
     secrets = get_secrets()
@@ -163,6 +150,7 @@ async def run() -> None:
                 BotCommand(command="sub", description="Thêm vào danh mục theo dõi (VD: /sub FPT)"),
                 BotCommand(command="watchlist", description="Xem danh sách cổ phiếu theo dõi"),
                 BotCommand(command="canhbao", description="Bật/tắt cảnh báo tự động cuối phiên"),
+                BotCommand(command="trangthai", description="Tình trạng dữ liệu & tiến độ nạp"),
                 BotCommand(command="help", description="Hướng dẫn sử dụng chi tiết"),
             ]
         )

@@ -4,6 +4,7 @@ va tham so tuy chinh dang `/loc san=HOSE kn=MUA rsi=quaban`.
 from __future__ import annotations
 
 import asyncio
+from html import escape
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -17,7 +18,7 @@ from ...analysis.screener import (
     preset_warning,
     screen_report,
 )
-from ...analysis.snapshot import is_build_in_progress, load_snapshot
+from ...analysis.snapshot import data_unavailable_message, load_snapshot
 from ...logging_conf import get_logger
 from ..formatters import error_card, screener_results_card
 from ..keyboards import screener_menu
@@ -32,18 +33,16 @@ _PRESETS = {
 }
 
 
-_PREPARING_MESSAGE = (
-    "⏳ Đang chuẩn bị dữ liệu cho phiên này (cập nhật kho giá + tính lại khuyến nghị "
-    "toàn sàn). Vui lòng thử lại sau vài phút."
-)
+async def _no_data_text() -> str | None:
+    """Thong bao (da escape HTML) neu chua co snapshot - noi ro dang nap den
+    dau hoac lan truoc loi gi. None neu da co du lieu."""
+    if not (await asyncio.to_thread(load_snapshot)).empty:
+        return None
+    return escape(data_unavailable_message())
 
 
 @router.message(Command("loc", "screen"))
 async def cmd_screen(message: Message) -> None:
-    if is_build_in_progress() and load_snapshot().empty:
-        await message.answer(_PREPARING_MESSAGE)
-        return
-
     args = (message.text or "").split(maxsplit=1)
     custom_args = args[1].strip() if len(args) > 1 else ""
 
@@ -69,6 +68,11 @@ async def cmd_screen(message: Message) -> None:
         await message.answer(error_card(str(exc)))
         return
 
+    no_data = await _no_data_text()
+    if no_data:
+        await message.answer(no_data)
+        return
+
     try:
         report = await asyncio.to_thread(screen_report, criteria)
         text = screener_results_card(report.results, note=report.note)
@@ -84,14 +88,18 @@ async def on_screen_preset(callback: CallbackQuery) -> None:
         await callback.answer()
         return
 
-    if is_build_in_progress() and load_snapshot().empty:
-        await callback.answer("Đang chuẩn bị dữ liệu, thử lại sau vài phút.", show_alert=True)
-        return
-
     preset_key = callback.data.split(":", 1)[1]
     factory = _PRESETS.get(preset_key)
     if factory is None:
         await callback.answer("Bộ lọc không hợp lệ.")
+        return
+
+    # Gui thanh tin nhan thuong, khong dung show_alert: popup cua Telegram gioi
+    # han 200 ky tu, khong du cho thong bao tien do/loi.
+    no_data = await _no_data_text()
+    if no_data:
+        await callback.answer()
+        await callback.message.answer(no_data)
         return
 
     await callback.answer("Đang lọc...")

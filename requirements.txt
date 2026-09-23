@@ -22,6 +22,7 @@ msgpack>=1.0
 vnstock>=4.0              # Vietcap/VCI: báo cáo tài chính, danh sách mã, ngành (nguồn dự phòng)
 httpx>=0.27
 requests>=2.31             # data/vietcap.py: nạp toàn sàn theo lô (endpoint công khai bảng giá)
+psutil>=5.9                # sysinfo.py: đo RAM tiến trình (log dựng snapshot, lệnh /trangthai)
 
 # --- backtest ---
 scipy>=1.11                # backtest/metrics.py: deflated_sharpe (scipy.stats.norm)

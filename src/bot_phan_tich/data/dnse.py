@@ -139,6 +139,24 @@ class DnseProvider(PriceProvider):
             raise ProviderError(f"DNSE get_instruments that bai: {exc}") from exc
         return self._parse_response(status, body, "get_instruments")
 
+    def probe_ohlc(self, symbol: str, days: int = 30) -> tuple[int | None, int, str | None]:
+        """Goi thu GET /price/ohlc DUNG MOT LAN (khong thu lai) - cho
+        scripts/diagnose.py. Tra (ma HTTP, so phien nhan duoc, loi hoac None)."""
+        end = date.today()
+        start = date.fromordinal(end.toordinal() - days)
+        try:
+            status, body = self.client.get_ohlc(
+                _market_type_of(symbol),
+                query={
+                    "symbol": symbol.upper(), "resolution": "1D",
+                    "from": _to_epoch(start), "to": _to_epoch(end),
+                },
+            )
+            payload = self._parse_response(status, body, f"get_ohlc({symbol})")
+        except Exception as exc:  # noqa: BLE001 - chan doan: bao loi, khong nem
+            return None, 0, f"{type(exc).__name__}: {exc}"
+        return status, len(_normalise_ohlc(payload)), None
+
     # --------------------------------------------------------------- PriceProvider
     def ohlcv(
         self, symbol: str, start: date, end: date, resolution: str = "1D"

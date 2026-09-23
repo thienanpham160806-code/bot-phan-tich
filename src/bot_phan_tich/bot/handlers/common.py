@@ -73,6 +73,10 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
 • <code>/canhbao</code> — Bật/Tắt thông báo tự động cuối phiên (15:05 mỗi ngày)
 
 ━━━━━━━━━━━━━━━━━━━━━
+🛠 <code>/trangthai</code> — Tình trạng dữ liệu của bot
+  ➔ Kho giá, snapshot, tiến độ nạp, lỗi gần nhất, RAM đang dùng.
+
+━━━━━━━━━━━━━━━━━━━━━
 💡 <i>Mẹo: Bạn có thể chạm nhanh vào các lệnh có khung màu xám (code) ở trên để copy vào ô chat!</i>
 <i>(Hỗ trợ cả lệnh cũ: /khuyennghi, /bieudo, /tracuu, /bctc, /theodoi, /danhsach...)</i>
 

@@ -27,16 +27,18 @@ tinh lai hay goi mang trong luc dang phuc vu mot lenh.
   +----------------------------------------------------+
   |  analysis/snapshot.py :: build_snapshot()           |
   |  Voi MOI ma du dieu kien thanh khoan (data/universe.py):|
-  |    - doc gia tu market_store (KHONG goi mang)       |
+  |    - doc kho MOT LAN (frames_by_symbol), khong goi mang|
   |    - goi analysis/scoring.py :: recommend() DUNG 1 LAN|
-  |    - chay SONG SONG nhieu tien trinh (ProcessPoolExecutor)|
+  |    - duyet TUAN TU trong MOT tien trinh (~15 ms/ma) |
   |  Ghi ra data/market/snapshot.parquet                |
   +----------------------------+-----------------------+
                                 |
-        scripts/build_snapshot.py (thu cong), HOAC tu dong:
+        scripts/build_snapshot.py (thu cong), HOAC tu dong qua
+        analysis/snapshot.py :: update_market_data() (mot luong duy nhat,
+        co khoa chong chay chong, ghi tien do/loi cho /trangthai):
           - bot/scheduler.py: sau gio dong cua moi ngay (bot.scan_cron)
           - bot/main.py: ensure_fresh_in_background() luc bot khoi dong,
-            neu snapshot da cu/thieu (KHONG chan bot khoi dong)
+            neu kho rong / snapshot cu / snapshot tam (KHONG chan bot)
                                 |
                                 v
   +----------------------------------------------------+
@@ -137,26 +139,49 @@ tinh, cho phep `/help` va cac lenh khac van tra loi ngay lap tuc song song
 
 ## Luong `scripts/build_snapshot.py` (hoac tu dong hang ngay)
 
-1. `data/universe.py::liquid_universe()` doc `market_store` (khong goi mang),
-   loc theo san/gia/khoi luong/so ngay niem yet tu `config/settings.yaml`.
-2. `analysis/snapshot.py::build_snapshot()` chay `ProcessPoolExecutor`, voi
-   moi ma: doc gia tu `market_store`, goi `analysis.scoring.recommend()`
-   DUNG MOT LAN, gop them chi so co ban tu `fundamentals_store` (neu co).
+1. `data/universe.py::liquid_universe()` doc `market_store` (chi cac cot
+   can, khong goi mang), loc theo san/gia/khoi luong/so ngay niem yet tu
+   `config/settings.yaml`; neu `universe.max_symbols > 0` chi giu N ma
+   thanh khoan nhat.
+2. `analysis/snapshot.py::build_snapshot()` doc kho MOT LAN
+   (`frames_by_symbol`), duyet TUAN TU trong mot tien trinh: moi ma goi
+   `analysis.scoring.recommend()` DUNG MOT LAN, gop them chi so co ban tu
+   `fundamentals_store` (neu co). Khong dung da tien trinh: ban cu mo
+   `os.cpu_count() - 1` tien trinh, moi tien trinh tu doc lai ca kho
+   (~111 MB) -> vuot 512 MB cua Render goi Free -> OOM -> lap vo tan.
 3. Ghi ra `data/market/snapshot.parquet` (~24 cot: hanh dong, diem, trang
    thai MACD/RSI/Ichimoku, ly do, thoi diem tinh `as_of`...).
-4. `bot/main.py::daily_scan_job()` (theo `bot.scan_cron`, mac dinh 15h05 cac
-   ngay lam viec) chay tuan tu: `market_store.refresh()` (cap nhat tang dan)
-   -> `build_snapshot()` -> `alerts.eod.run_eod_scan()` -> gui canh bao.
-5. `bot/main.py::run()` cung goi `ensure_fresh_in_background()` NGAY LUC
-   KHOI DONG (khong await, chay nen) - neu snapshot da cu/thieu (vd bot vua
-   bi tat qua dem), tu cap nhat ma khong lam bot cho lau moi tra loi duoc.
+
+## Cap nhat du lieu o nen: `analysis/snapshot.py::update_market_data()`
+
+Mot luong DUY NHAT cho ca luc khoi dong (`ensure_fresh_in_background()`) va
+lich 15h05 (`bot/main.py::daily_scan_job()`), co `asyncio.Lock` de hai luong
+khong ghi chong len cung mot file:
+
+1. Kho gia RONG (lan dau, hoac Render goi Free vua restart - dia tam bi xoa):
+   a. TRUOC TIEN dung snapshot TAM cho danh sach theo doi trong
+      `config/universe.yaml` (~12 ma, vai giay) - `/loc`, `/tinhieu` co ket
+      qua that ngay, kem ghi chu "Du lieu tam thoi: N ma". Ban tam danh dau
+      bang file `snapshot.partial`, KHONG ghi vao kho gia.
+   b. `market_store.bootstrap()` nap toan san: tai tung lo, ghi noi tiep
+      vao file tam, xong het moi doi ten thanh kho that - kho hoac chua co,
+      hoac du ca san (khong bao gio "ket" o mot phan).
+2. Kho da co: `market_store.refresh()` tai bu vai phien moi nhat, gop vao kho
+   o dang tiet kiem RAM (category + float32).
+3. `build_snapshot()` dung snapshot day du, xoa dau "tam thoi".
+
+Moi buoc cap nhat `BuildStatus` (buoc hien tai, x/y ma, uoc tinh thoi gian
+con lai, loi gan nhat) - hien trong `/trangthai` va trong thong bao cua
+`/loc`, `/tinhieu` khi chua co du lieu. Do moi cua du lieu (`is_stale()`)
+tinh theo gio `bot.timezone` (Viet Nam), khong theo gio may chu (Render UTC).
 
 ## Luong lenh `/loc`, `/tinhieu`
 
-1. Handler kiem tra `analysis.snapshot.is_build_in_progress()` - neu dang
-   cap nhat o nen thi bao "dang chuan bi du lieu", khong doc snapshot cu.
+1. Neu chua co snapshot: tra loi ro ly do - dang nap den dau ("Dang nap kho
+   gia toan san: 450/1500 ma (khoang 2 phut nua)") hoac lan truoc loi gi.
 2. `analysis.screener.screen_report()` / `today_signals()` doc
-   `snapshot.parquet` MOT LAN, loc/nhom bang pandas boolean mask.
+   `snapshot.parquet` MOT LAN, loc/nhom bang pandas boolean mask, kem ghi
+   chu neu du lieu la ban tam, dang cap nhat o nen, hoac da cu.
 3. Ca hai deu chay trong `await asyncio.to_thread(...)` (du ban than da rat
    nhanh - duoi 1 giay tren du lieu thuc te) de nhat quan voi nguyen tac 6.
 4. Ket qua qua `bot/formatters.py:screener_results_card()` / `signals_card()`.

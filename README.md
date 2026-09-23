@@ -77,14 +77,18 @@ Cấu hình Vietcap (nguồn dự phòng, **không cần API key**): qua thư vi
 
 ## 3. Nạp dữ liệu và chạy bot
 
-Ba bước theo đúng thứ tự — **bắt buộc** phải chạy bước 1 và 2 trước khi mở
-bot lần đầu, nếu không `/loc` và `/tinhieu` sẽ báo "đang chuẩn bị dữ liệu":
+Ba bước theo đúng thứ tự. Nếu bỏ qua bước 1 và 2, bot vẫn tự nạp khi khởi
+động (dùng tạm ~12 mã trong danh sách theo dõi trong vài giây đầu, rồi nạp
+toàn sàn ở nền — theo dõi bằng `/trangthai`), nhưng chạy trước sẽ có ngay
+dữ liệu đầy đủ:
 
 ```bash
 # 1. Nạp giá TOÀN SÀN (HOSE/HNX/UPCOM) vào kho parquet cục bộ (data/market/ohlcv.parquet).
-#    Lần đầu tải ~750 phiên (~3 năm)/mã cho ~1.500 mã — mất khoảng 2-3 phút
-#    (đo thực tế: 1.523 mã trong 123 giây), tuỳ tốc độ mạng. Các lần sau chỉ
-#    tải thêm vài phiên mới nhất và gộp vào kho cũ — vài chục giây.
+#    Lần đầu tải 500 phiên (~2 năm)/mã cho ~1.500 mã — mất khoảng 2 phút,
+#    tuỳ tốc độ mạng (500 phiên vẫn dư cho mọi chỉ báo: Ichimoku cần 52+26,
+#    RSI thích ứng cần 252). Các lần sau chỉ tải thêm vài phiên mới nhất và
+#    gộp vào kho cũ — vài chục giây. Số phiên chỉnh ở config/settings.yaml
+#    (market_store.count_back_bootstrap) hoặc biến MARKET_COUNT_BACK.
 python scripts/backfill_data.py
 
 # 2. Tính khuyến nghị (MACD/RSI/Ichimoku hợp lưu) cho MỌI mã đủ điều kiện
@@ -143,6 +147,7 @@ Giao diện bot được thiết kế theo 3 nhóm nhu cầu cốt lõi, hỗ tr
 | `/watchlist` | `/danhsach` | Xem danh sách cổ phiếu theo dõi kèm trạng thái khuyến nghị hôm nay |
 | `/unsub MA` | `/bosach` | Bỏ theo dõi một mã |
 | `/canhbao` | `/alerts` | Bật/tắt cảnh báo tự động cuối phiên (15:05 mỗi ngày giao dịch) |
+| `/trangthai` | `/status` | Tình trạng dữ liệu: kho giá, snapshot (mới/cũ/tạm thời), tiến độ nạp nền, lỗi gần nhất, RAM đang dùng |
 | `/help` | `/start` | Menu hướng dẫn chi tiết và bàn phím tương tác nhanh |
 
 `/loc` hỗ trợ các khoá lọc tuỳ chỉnh: `san` (sàn), `kn` (khuyến nghị tối
@@ -211,7 +216,8 @@ phòng theo thứ tự khai báo ở `config/settings.yaml: data.price_sources` 
 | Tất cả nguồn đều lỗi | Trả dữ liệu từ cache kèm nhãn thời điểm, bot **không** sập |
 | Dữ liệu bẩn (BOM, CRLF, trùng lặp) | `data/cleaner.py` chuẩn hoá trước khi ghi cache |
 | Mã không tồn tại / chưa đủ lịch sử | Handler bắt lỗi cụ thể, trả tin nhắn dễ hiểu qua `bot/formatters.py:error_card()` |
-| `/loc`, `/tinhieu` báo "đang chuẩn bị dữ liệu" | Chưa chạy `backfill_data.py`/`build_snapshot.py` lần nào, hoặc bot vừa khởi động và đang tự cập nhật ở nền (`ensure_fresh_in_background()`) — đợi vài phút rồi thử lại |
+| Bot vừa khởi động trên máy trắng dữ liệu (lần đầu, hoặc Render gói Free vừa restart) | Bot tự dựng dữ liệu **tạm** cho danh sách theo dõi (`config/universe.yaml`, ~12 mã) trong vài giây — `/loc`, `/tinhieu` có kết quả ngay kèm ghi chú "Dữ liệu tạm thời" — rồi nạp toàn sàn ở nền (vài phút) |
+| `/loc`, `/tinhieu` báo đang nạp hoặc báo lỗi | Thông báo nói rõ tiến độ (vd "450/1500 mã, khoảng 2 phút nữa") hoặc lỗi của lần nạp gần nhất. Gõ `/trangthai` để xem chi tiết |
 
 ---
 
@@ -221,17 +227,37 @@ Bot dùng cơ chế **long polling** (`dispatcher.start_polling()`) — không c
 
 ### 7.1. Chạy ngầm trên Windows (Không cần mở VS Code / Antigravity)
 
-Trong thư mục gốc dự án đã chuẩn bị sẵn các công cụ 1-click:
+Trong thư mục gốc dự án đã chuẩn bị sẵn các công cụ 1-click (đều gọi
+`scripts/windows/bot.ps1`):
 
-- **`chay_bot_an.bat`** *(Khuyên dùng)*: Click đúp vào file này, bot sẽ tự động khởi động chạy ngầm dưới nền hệ thống bằng `pythonw.exe` (không hiện bất kỳ cửa sổ dòng lệnh đen nào). **Bạn có thể tắt hoàn toàn VS Code / Antigravity / Terminal, bot vẫn tiếp tục hoạt động trên Telegram!**
-- **`tat_bot.bat`**: Click đúp để dừng toàn bộ tiến trình bot đang chạy ngầm khi muốn tắt hoặc cập nhật code.
-- **`chay_bot_hien_log.bat`**: Dùng khi bạn muốn mở cửa sổ console đen để vừa xem trực tiếp từng dòng log xử lý của bot vừa kiểm tra.
+- **`chay_bot_an.bat`** *(Khuyên dùng)*: chạy bot ngầm bằng `pythonw.exe`
+  (không có cửa sổ). Dùng `pythonw.exe` trong `.venv` của repo nếu có, không
+  thì `pythonw` trên PATH. Bot được tạo qua WMI nên **không thuộc cửa sổ nào**:
+  đóng terminal, VS Code hay Antigravity, bot vẫn chạy (đã kiểm chứng bằng
+  cách giết cả cây tiến trình của cửa sổ khởi chạy). Script chờ tới khi bot
+  kết nối Telegram rồi mới báo thành công; nếu bot thoát ngay (vd thiếu
+  `TELEGRAM_BOT_TOKEN`) thì in 15 dòng log cuối.
+- **`tat_bot.bat`**: dừng bot. Chỉ dừng đúng tiến trình bot (nhận theo dòng
+  lệnh), không đụng các chương trình `pythonw` khác.
+- **`kiem_tra_bot.bat`**: bot có đang chạy không, PID, RAM đang dùng.
+- **`chay_bot_hien_log.bat`**: chạy bot trong cửa sổ console để xem log trực
+  tiếp (đóng cửa sổ là bot dừng). Từ chối chạy nếu bot đang chạy ngầm — hai
+  tiến trình cùng một token sẽ bị Telegram báo lỗi xung đột.
+
+Log ghi vào **`logs/bot.log`**. Không cần đặt `PYTHONPATH` hay
+`pip install -e .` — các file trên chạy qua `scripts/run_bot.py`, tự thêm
+`src/` vào đường dẫn.
+
+**Cách kiểm tra bot còn sống:** chạy `kiem_tra_bot.bat`; hoặc gõ `/trangthai`
+trên Telegram (trả lời được là bot đang chạy); hoặc mở Task Manager → tab
+*Details* → tìm `pythonw.exe` (bấm chuột phải tiêu đề cột → *Select columns*
+→ *Command line* để thấy dòng lệnh chứa `run_bot.py`).
 
 > 💡 **Tự động chạy mỗi khi bật máy tính:**
-> 1. Nhấn tổ hợp phím `Windows + R` ➔ gõ `shell:startup` rồi bấm Enter (thư mục Startup của Windows sẽ mở ra).
-> 2. Nhấp chuột phải vào `chay_bot_an.bat` ➔ chọn *Show more options* ➔ *Create shortcut* (Tạo lối tắt).
-> 3. Kéo shortcut vừa tạo thả vào thư mục Startup.
-> ➔ Từ nay cứ mở máy tính lên là bot tự động chạy ngầm, không cần thao tác thủ công.
+> 1. Nhấn `Windows + R` ➔ gõ `shell:startup` ➔ Enter (thư mục Startup mở ra).
+> 2. Chuột phải vào `chay_bot_an.bat` ➔ *Show more options* ➔ *Create shortcut*.
+> 3. Kéo shortcut vào thư mục Startup, rồi chuột phải shortcut ➔ *Properties*
+>    ➔ thêm ` tudong` vào cuối ô *Target* (để cửa sổ tự đóng, không chờ bấm phím).
 
 ### 7.2. Chạy 24/7 vĩnh viễn trên Máy chủ Cloud / VPS Linux (Docker)
 
@@ -255,42 +281,61 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-### 7.3. Triển khai trên Render.com (gói Free)
+### 7.3. Triển khai trên Render.com — giới hạn thực tế và lựa chọn
 
-Bot polling Telegram về bản chất hợp với loại **Background Worker** (không
-mở port, không bị quét port) — nhưng **gói Free của Render KHÔNG hỗ trợ
-Background Worker** (chỉ trả phí từ gói Starter trở lên mới tạo được loại
-này — lỗi gặp thực tế: *"service type is not available for this plan"*).
-Nên trên gói Free, `render.yaml` khai báo **`type: web`**, kèm một HTTP
-health-check dự phòng trong `bot/main.py` (bắt biến `PORT` Render tự cấp,
-mở một server trả `200 OK`) để bot qua được vòng quét port của Render.
+**Giới hạn của gói Free (đã gặp thực tế khi deploy):**
 
-**Deploy:** Render dashboard → **New +** → **Blueprint** (hoặc **Web
-Service** thủ công, chọn Docker runtime) → chọn repo này, nhánh `main` →
-điền `TELEGRAM_BOT_TOKEN` → Deploy.
+- **512 MB RAM, CPU chia sẻ.** Riêng việc nạp thư viện của bot (aiogram,
+  pandas, vnstock) đã chiếm khoảng 250–300 MB, chỉ còn khoảng 200 MB cho
+  dữ liệu. Toàn sàn vẫn chạy được nhưng sát giới hạn; vượt là container bị
+  tắt và khởi động lại.
+- **Không có ổ đĩa lưu bền.** Mọi thứ trong `data/` (kho giá, snapshot,
+  danh sách theo dõi, cài đặt cảnh báo của người dùng) **mất sạch mỗi lần
+  container khởi động lại** (deploy mới, lỗi, hoặc Render tự khởi động lại).
+  Mỗi lần như vậy bot phải nạp lại kho giá từ đầu: vài giây đầu chỉ có dữ
+  liệu tạm cho danh sách theo dõi, vài phút sau mới có đủ vũ trụ.
+- **Tự ngủ sau ~15 phút không có request HTTP.** Bot chỉ polling Telegram
+  ra ngoài, không ai gọi HTTP vào, nên nếu không có dịch vụ ping thì cả
+  tiến trình bị dừng (kể cả lịch quét 15:05).
+- **Không có Background Worker** (loại phù hợp đúng bản chất bot polling,
+  không bị quét port). Gói Free báo *"service type is not available for
+  this plan"*, nên phải chạy dưới dạng Web Service kèm health-check HTTP
+  giả trong `bot/main.py`.
 
-**Vấn đề còn lại — BẮT BUỘC phải xử lý:** gói Free của Render tự "ngủ"
-(spin down) sau **~15 phút không có request HTTP nào gọi đến** service.
-Sẽ không có ai tự gọi HTTP vào bot cả (bot chỉ polling Telegram RA NGOÀI,
-không nhận request từ ai) — nên nếu không làm gì thêm, khoảng 15 phút sau
-khi deploy, **cả tiến trình bot sẽ bị dừng hẳn** (kể cả vòng polling
-Telegram, kể cả lịch quét 15h05/tin tức hàng giờ), và không tự chạy lại
-được cho tới khi có ai đó gọi lại URL hoặc redeploy thủ công.
+**Ba lựa chọn:**
 
-**Cách giữ bot luôn thức, miễn phí:** dùng một dịch vụ ping định kỳ bên
-ngoài gọi vào endpoint health-check mỗi 5–10 phút, ví dụ
-[UptimeRobot](https://uptimerobot.com) (miễn phí):
+| | Lựa chọn | Dữ liệu | Chi phí | Hợp khi |
+|---|---|---|---|---|
+| **(a)** | **Chạy trên máy cá nhân** (mục 7.1) | Đầy đủ toàn sàn, giữ được qua các lần tắt/mở | Miễn phí | **Demo, chấm bài** — nhanh nhất, ổn định nhất |
+| (b) | Render gói trả phí + **Persistent Disk** | Đầy đủ, không mất khi restart | Trả phí hàng tháng | Cần chạy 24/7 lâu dài |
+| (c) | Render Free + vũ trụ rút gọn 300 mã + UptimeRobot | Rút gọn, nạp lại mỗi lần restart | Miễn phí | Muốn bot online 24/7 mà không trả phí, chấp nhận hạn chế |
 
-1. Lấy URL public của service trên Render (dạng
-   `https://<ten-service>.onrender.com`), thêm `/healthz` vào cuối.
-2. UptimeRobot → **Add New Monitor** → Monitor Type: **HTTP(s)** → dán URL
-   trên → Monitoring Interval: **5 phút** → Save.
-3. Từ đó UptimeRobot tự gọi vào bot mỗi 5 phút, Render luôn thấy có
-   "traffic" nên không bao giờ spin down.
+**Khuyến nghị: dùng (a) khi demo và chấm bài.** Chạy `chay_bot_an.bat` trên
+máy cá nhân sau khi đã chạy `scripts/backfill_data.py` và
+`scripts/build_snapshot.py` — có ngay dữ liệu toàn sàn, `/loc` trả lời tức
+thì. (c) chỉ là phương án dự phòng "cho bot luôn online", không nên dùng để
+trình diễn trước hội đồng vì có thể đúng lúc đó container vừa restart và
+đang nạp lại dữ liệu.
 
-Nếu sau này nâng cấp lên gói trả phí, chỉ cần đổi `render.yaml` sang
-`type: worker` và tạo lại service qua Blueprint — không cần cấu hình
-health-check/ping ngoài nữa.
+**Cách làm (b):** nâng service lên gói trả phí → đổi `render.yaml` sang
+`type: worker` (không cần health-check/UptimeRobot) → thêm Persistent Disk
+gắn vào `/app/data` (thư mục `DATA_DIR` mặc định trong Docker image) →
+deploy lại. Bỏ các biến giới hạn quy mô ở (c) để chạy toàn sàn.
+
+**Cách làm (c):**
+
+1. Render → **New +** → **Blueprint** → chọn repo này, nhánh `main` —
+   `render.yaml` đã đặt sẵn `UNIVERSE_MAX_SYMBOLS=300`, `MARKET_COUNT_BACK=400`,
+   `SNAPSHOT_MAX_WORKERS=1`. **Nếu service được tạo thủ công** (New + →
+   Web Service, không qua Blueprint) thì `render.yaml` **không tự áp dụng**:
+   phải tự thêm ba biến này trong tab **Environment** của service.
+2. Điền `TELEGRAM_BOT_TOKEN` → Deploy.
+3. UptimeRobot (miễn phí) → **Add New Monitor** → HTTP(s) →
+   `https://<ten-service>.onrender.com/healthz` → Interval **5 phút**.
+4. Kiểm tra trên Telegram: `/trangthai` (kho giá, snapshot, tiến độ nạp,
+   lỗi gần nhất, RAM) và `/trangthai chandoan` (RAM/CPU thật của container,
+   có gọi được Vietcap/DNSE không — gói Free không có Shell nên đây là cách
+   chẩn đoán duy nhất). Trên máy cá nhân chạy `python scripts/diagnose.py`.
 
 ### 7.4. Lịch chạy tự động của Bot
 

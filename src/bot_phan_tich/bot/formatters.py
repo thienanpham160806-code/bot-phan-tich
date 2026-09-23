@@ -19,6 +19,8 @@ from typing import Any
 
 from aiogram.types import Message
 
+from ..sysinfo import format_mb
+
 DISCLAIMER = "<i>Sản phẩm học thuật. Không phải khuyến nghị đầu tư.</i>"
 PROCESSING_NOTICE = "Đang xử lý..."
 PROCESSING_THRESHOLD_SECONDS = 2.0
@@ -595,6 +597,72 @@ def alerts_toggle_card(enabled: bool) -> str:
 
 def error_card(message: str) -> str:
     return f"Không xử lý được yêu cầu.\n\n<i>{escape(message)}</i>"
+
+
+# ----------------------------------------------------------------- /trangthai
+def _stamp(value: datetime | None) -> str:
+    return "chưa có" if value is None else f"{value:%d/%m/%Y %H:%M}"
+
+
+def status_card(status) -> str:
+    """The /trangthai - `status` la diagnostics.py:SystemStatus."""
+    lines = ["<b>🛠 TÌNH TRẠNG DỮ LIỆU CỦA BOT</b>", ""]
+
+    lines.append("<b>Kho giá</b>")
+    if status.store_rows:
+        size = f", {status.store_size_mb:,.1f} MB" if status.store_size_mb is not None else ""
+        lines.append(f"  {status.store_symbols:,} mã, {status.store_rows:,} dòng{size}")
+        lines.append(f"  Cập nhật: {_stamp(status.store_updated)}")
+    else:
+        lines.append("  Trống — chưa nạp")
+
+    lines.append("<b>Snapshot khuyến nghị</b>")
+    if status.snapshot_symbols:
+        if status.snapshot_partial:
+            freshness = "TẠM THỜI — chỉ danh sách theo dõi, đang chờ nạp toàn sàn"
+        elif status.snapshot_stale:
+            freshness = "cũ hơn phiên gần nhất"
+        else:
+            freshness = "mới"
+        built_at = _stamp(status.snapshot_updated)
+        lines.append(f"  {status.snapshot_symbols:,} mã, dựng lúc {built_at}")
+        lines.append(f"  Tình trạng: {freshness}")
+    else:
+        lines.append("  Chưa có")
+
+    lines.append("<b>Chỉ số cơ bản (P/E, P/B, ROE)</b>")
+    if status.fundamentals_symbols:
+        lines.append(
+            f"  {status.fundamentals_symbols:,} mã, cập nhật {_stamp(status.fundamentals_updated)}"
+        )
+    else:
+        lines.append("  Chưa có (chạy scripts/backfill_fundamentals.py)")
+
+    build = status.build
+    lines.append("<b>Tiến trình nền</b>")
+    if build.running:
+        lines.append(f"  ⏳ {escape(status.progress or 'Đang chạy')}")
+        lines.append(f"  Bắt đầu: {_stamp(build.started_at)}")
+    elif build.finished_at is None:
+        lines.append("  Chưa chạy lần nào kể từ khi bot khởi động")
+    elif build.last_error:
+        lines.append(f"  ❌ Thất bại lúc {_stamp(build.finished_at)}")
+    else:
+        result = f" ({escape(build.last_result)})" if build.last_result else ""
+        lines.append(f"  ✅ Xong lúc {_stamp(build.finished_at)}{result}")
+    if build.last_error:
+        lines.append(f"  Lỗi gần nhất: <i>{escape(build.last_error)}</i>")
+
+    lines.append("<b>RAM tiến trình</b>")
+    lines.append(
+        f"  Đang dùng {format_mb(status.ram_mb)} (đỉnh {format_mb(status.ram_peak_mb)})"
+    )
+    lines.append("")
+    lines.append(
+        "<i>Kiểm tra RAM/CPU thật của máy chủ và kết nối nguồn dữ liệu: "
+        "<code>/trangthai chandoan</code></i>"
+    )
+    return "\n".join(lines)
 
 
 def macro_news_card(items: list[dict], title_suffix: str = "1 Giờ Qua") -> str:
