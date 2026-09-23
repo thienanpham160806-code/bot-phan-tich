@@ -153,7 +153,14 @@ def refresh(count_back: int = 10) -> int:
     return save_ohlcv(frame, merge=True)
 
 
-def bootstrap(exchanges: list[str] | None = None, count_back: int = 750) -> int:
+_BOOTSTRAP_CHUNK_SIZE = 150  # xem docstring bootstrap(): giam dinh RAM + luu tang dan
+
+
+def bootstrap(
+    exchanges: list[str] | None = None,
+    count_back: int = 750,
+    chunk_size: int = _BOOTSTRAP_CHUNK_SIZE,
+) -> int:
     """Nap TOAN BO lich su gia cho CA SAN (giong scripts/backfill_data.py
     lan dau), dung khi kho HOAN TOAN RONG - vd container vua khoi dong tren
     moi truong khong co dia luu ben vung (Render goi Free: /data bi xoa
@@ -163,9 +170,22 @@ def bootstrap(exchanges: list[str] | None = None, count_back: int = 750) -> int:
     tren kho rong no khong lam gi ca (dung y, tranh tu bia danh sach ma).
     bootstrap() moi thuc su tai danh sach ma + lich su day du tu dau.
 
+    Tai va LUU THEO TUNG LO NHO (`chunk_size` ma/lo, mac dinh 150) thay vi
+    mot lan cho ca 1.500+ ma - hai ly do:
+      1. Gioi han RAM dinh: goi Render Free chi co 512MB, giu ca ~1.100.000
+         dong (toan san, ~750 phien/ma) trong bo nho CUNG LUC truoc khi luu
+         co the vuot gioi han va bi container tu restart giua chung (da gap
+         thuc te: log cho thay tien trinh bi khoi dong lai dung luc dang
+         tai gan xong, mat trang toan bo tien do vi ban goc chi luu MOT LAN
+         o cuoi).
+      2. Luu tang dan: neu container co bi restart giua chung (bat ky ly do
+         gi), CAC LO DA TAI XONG van con nguyen trong file (merge=True tu
+         lo thu hai) - lan chay lai ke tiep (do is_stale()/kho van con thieu
+         ma) chi can tai bu phan con thieu, khong phai lam lai tu dau 100%.
+
     Cham hon refresh() nhieu (~2-3 phut cho toan san, do thuc te 1.523 ma/
-    123s) - chi nen goi MOT LAN moi khi phat hien kho rong, khong goi lap
-    lai moi vong quet dinh ky (xem analysis/snapshot.py:ensure_fresh_in_background()).
+    123s) - chi nen goi khi phat hien kho rong, khong goi lap lai moi vong
+    quet dinh ky (xem analysis/snapshot.py:ensure_fresh_in_background()).
     """
     from ..config import get_settings
     from .vietcap import fetch_all_symbols, fetch_ohlcv_bulk  # tranh import vong
@@ -180,7 +200,14 @@ def bootstrap(exchanges: list[str] | None = None, count_back: int = 750) -> int:
     save_symbols(symbols_frame)
 
     symbols = symbols_frame["symbol"].tolist()
-    frame = fetch_ohlcv_bulk(symbols, count_back=count_back)
-    total = save_ohlcv(frame, merge=False)
-    log.info("market_store.bootstrap(): %d ma, %d dong", len(symbols), total)
+    total = 0
+    for i in range(0, len(symbols), chunk_size):
+        chunk = symbols[i : i + chunk_size]
+        frame = fetch_ohlcv_bulk(chunk, count_back=count_back)
+        total = save_ohlcv(frame, merge=(i > 0))
+        log.info(
+            "market_store.bootstrap(): da tai %d/%d ma (kho hien co %d dong)",
+            min(i + chunk_size, len(symbols)), len(symbols), total,
+        )
+    log.info("market_store.bootstrap(): xong %d ma, %d dong", len(symbols), total)
     return total

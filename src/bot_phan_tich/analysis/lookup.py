@@ -8,7 +8,6 @@ doi khong bia so.
 """
 from __future__ import annotations
 
-import urllib.parse
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -232,7 +231,9 @@ _NEWS_WINDOW_DAYS = 180  # 6 thang gan nhat
 _NEWS_MAX_ITEMS = 8
 
 
-def _build_news_links(symbol: str, title: str, raw_url: str | None = None) -> tuple[str | None, str]:
+def _build_news_links(
+    symbol: str, title: str, raw_url: str | None = None
+) -> tuple[str | None, str]:
     """Tao link dan toi bao/tap chi chinh thong (Google Search va CafeF)."""
     if raw_url and raw_url.startswith("http"):
         read_url = raw_url

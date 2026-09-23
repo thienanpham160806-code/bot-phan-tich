@@ -444,10 +444,11 @@ def lookup_card(profile) -> str:
                 else:
                     search_q = urllib.parse.quote_plus(f"{profile.symbol} {item.title}")
                     search_url = f"https://www.google.com/search?q={search_q}"
-                    lines.append(
-                        f"{date_prefix}{title} "
-                        f"<i>[<a href=\"{search_url}\">🔍 Tìm</a> | <a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
+                    links = (
+                        f"<i>[<a href=\"{search_url}\">🔍 Tìm</a> | "
+                        f"<a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
                     )
+                    lines.append(f"{date_prefix}{title} {links}")
             else:
                 raw_text = str(item)
                 if " — " in raw_text:
@@ -458,10 +459,11 @@ def lookup_card(profile) -> str:
                     q = urllib.parse.quote_plus(search_tit)
                     search_url = f"https://www.google.com/search?q={q}"
                     cafef_url = f"https://s.cafef.vn/tin-doanh-nghiep/{profile.symbol.upper()}/Event.chn"
-                    lines.append(
-                        f"• <b>{escape(dt)}</b> — {escape(tit)} "
-                        f"<i>[<a href=\"{search_url}\">🔍 Tìm</a> | <a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
+                    links = (
+                        f"<i>[<a href=\"{search_url}\">🔍 Tìm</a> | "
+                        f"<a href=\"{cafef_url}\">CafeF ↗</a>]</i>"
                     )
+                    lines.append(f"• <b>{escape(dt)}</b> — {escape(tit)} {links}")
                 else:
                     lines.append(f"• {escape(raw_text)}")
 

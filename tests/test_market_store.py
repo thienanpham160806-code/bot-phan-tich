@@ -132,6 +132,45 @@ def test_bootstrap_fetches_full_history_on_empty_store(isolated_store, monkeypat
     assert list(market_store.load_symbols()["symbol"]) == ["FPT", "VNM"]
 
 
+def test_bootstrap_saves_incrementally_per_chunk(isolated_store, monkeypatch):
+    """Moi lo phai duoc LUU NGAY (khong doi tai het moi luot luu) - neu tien
+    trinh bi ngat giua chung (vd Render goi Free restart do vuot RAM), cac lo
+    da tai xong van con lai trong kho thay vi mat trang toan bo (da gap thuc
+    te: ban goc chi luu 1 lan o cuoi, bi restart giua luc tai la mat het)."""
+    from bot_phan_tich.data import vietcap as vietcap_mod
+
+    symbols_frame = pd.DataFrame(
+        {"symbol": ["A", "B", "C", "D", "E"], "exchange": ["HOSE"] * 5}
+    )
+    monkeypatch.setattr(vietcap_mod, "fetch_all_symbols", lambda exchanges: symbols_frame)
+
+    saved_after_each_chunk: list[set] = []
+
+    def fake_fetch_ohlcv_bulk(symbols, count_back):
+        rows = [[s.lower(), "2024-01-01", 10, 11, 9, 10.5, 1000] for s in symbols]
+        return _frame(rows)
+
+    monkeypatch.setattr(vietcap_mod, "fetch_ohlcv_bulk", fake_fetch_ohlcv_bulk)
+
+    real_save_ohlcv = market_store.save_ohlcv
+
+    def spy_save_ohlcv(frame, merge=True):
+        result = real_save_ohlcv(frame, merge=merge)
+        saved_after_each_chunk.append(set(market_store.load_ohlcv()["symbol"]))
+        return result
+
+    monkeypatch.setattr(market_store, "save_ohlcv", spy_save_ohlcv)
+
+    total = market_store.bootstrap(chunk_size=2)
+
+    assert total == 5
+    assert len(saved_after_each_chunk) == 3  # 5 ma, lo 2 -> 3 lo (2, 2, 1)
+    # kho PHAI lon dan qua tung lo, khong phai rong het cho toi lo cuoi
+    assert saved_after_each_chunk[0] == {"A", "B"}
+    assert saved_after_each_chunk[1] == {"A", "B", "C", "D"}
+    assert saved_after_each_chunk[2] == {"A", "B", "C", "D", "E"}
+
+
 def test_bootstrap_returns_zero_when_symbol_list_empty(isolated_store, monkeypatch):
     from bot_phan_tich.data import vietcap as vietcap_mod
 
