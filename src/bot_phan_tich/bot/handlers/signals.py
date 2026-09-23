@@ -7,29 +7,26 @@ cung nguyen tac voi /loc - khong tinh lai, khong goi mang, xong duoi 1 giay.
 from __future__ import annotations
 
 import asyncio
+from html import escape
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from ...analysis.screener import today_signals
-from ...analysis.snapshot import is_build_in_progress, load_snapshot
+from ...analysis.snapshot import data_unavailable_message, load_snapshot
 from ...logging_conf import get_logger
 from ..formatters import error_card, signals_card
 
 log = get_logger(__name__)
 router = Router(name="signals")
 
-_PREPARING_MESSAGE = (
-    "⏳ Đang chuẩn bị dữ liệu cho phiên này (cập nhật kho giá + tính lại khuyến nghị "
-    "toàn sàn). Vui lòng thử lại sau vài phút."
-)
-
 
 @router.message(Command("tinhieu", "signals"))
 async def cmd_signals(message: Message) -> None:
-    if is_build_in_progress() and load_snapshot().empty:
-        await message.answer(_PREPARING_MESSAGE)
+    if (await asyncio.to_thread(load_snapshot)).empty:
+        # Noi ro dang nap den dau / lan truoc loi gi, khong chi "dang chuan bi".
+        await message.answer(escape(data_unavailable_message()))
         return
 
     try:

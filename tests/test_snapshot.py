@@ -1,5 +1,5 @@
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -138,3 +138,106 @@ def test_snapshot_last_updated_is_timezone_aware(isolated_paths):
     updated = snapshot_mod.snapshot_last_updated()
     assert updated.utcoffset() is not None
     assert updated == datetime(2026, 9, 23, 15, 20, tzinfo=VN)
+
+
+# ------------------------------------------------ trang thai tien trinh nen (Phan 4)
+@pytest.fixture
+def fresh_status(monkeypatch):
+    status = snapshot_mod.BuildStatus()
+    monkeypatch.setattr(snapshot_mod, "_status", status)
+    return status
+
+
+async def test_update_records_error_instead_of_swallowing(
+    isolated_paths, fresh_status, monkeypatch
+):
+    def broken_bootstrap(progress=None):
+        raise ConnectionError("Vietcap timeout")
+
+    monkeypatch.setattr(market_store, "bootstrap", broken_bootstrap)
+
+    ran = await snapshot_mod.update_market_data(force=True)
+
+    assert ran is True
+    assert fresh_status.running is False
+    assert fresh_status.finished_at is not None
+    assert "ConnectionError: Vietcap timeout" in fresh_status.last_error
+    message = snapshot_mod.data_unavailable_message()
+    assert "thất bại" in message and "Vietcap timeout" in message and "/trangthai" in message
+
+
+async def test_update_reports_empty_source_as_error(isolated_paths, fresh_status, monkeypatch):
+    monkeypatch.setattr(market_store, "bootstrap", lambda progress=None: 0)
+
+    await snapshot_mod.update_market_data(force=True)
+
+    assert "rỗng" in fresh_status.last_error
+
+
+async def test_update_success_builds_snapshot_and_reports_progress(
+    isolated_paths, fresh_status, monkeypatch
+):
+    seen_progress = []
+
+    def fake_bootstrap(progress=None):
+        _seed_store({"AAA": 300, "BBB": 300})
+        progress(2, 2)
+        seen_progress.append((fresh_status.step, fresh_status.done, fresh_status.total))
+        return 600
+
+    monkeypatch.setattr(market_store, "bootstrap", fake_bootstrap)
+
+    await snapshot_mod.update_market_data(force=True)
+
+    assert seen_progress == [(snapshot_mod.STEP_BOOTSTRAP, 2, 2)]
+    assert fresh_status.last_error is None
+    assert fresh_status.last_result == "2 mã"
+    assert set(snapshot_mod.load_snapshot()["symbol"]) == {"AAA", "BBB"}
+
+
+async def test_concurrent_updates_do_not_overlap(isolated_paths, fresh_status, monkeypatch):
+    """Luong khoi dong va lich 15h05 cung ghi mot file parquet - khong duoc chay chong."""
+    import asyncio
+    import threading
+    import time
+
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def slow_bootstrap(progress=None):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.2)
+        with lock:
+            active -= 1
+        return 0
+
+    monkeypatch.setattr(market_store, "bootstrap", slow_bootstrap)
+
+    await asyncio.gather(
+        snapshot_mod.update_market_data(force=True),
+        snapshot_mod.update_market_data(force=True),
+    )
+
+    assert max_active == 1
+
+
+def test_progress_text_shows_counts_and_eta(fresh_status):
+    fresh_status.running = True
+    fresh_status.step = snapshot_mod.STEP_BOOTSTRAP
+    fresh_status.done, fresh_status.total = 450, 1500
+    fresh_status.step_started_at = datetime.now(VN) - timedelta(seconds=60)
+
+    text = snapshot_mod.progress_text()
+
+    assert text.startswith("Đang nạp kho giá toàn sàn: 450/1500 mã")
+    assert "khoảng 2 phút nữa" in text  # 60s cho 450 ma -> con ~140s
+    assert "450/1500" in snapshot_mod.data_unavailable_message()
+
+
+def test_data_unavailable_message_when_never_ran(fresh_status):
+    message = snapshot_mod.data_unavailable_message()
+    assert "Chưa có dữ liệu" in message and "/trangthai" in message

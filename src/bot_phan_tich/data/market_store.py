@@ -13,6 +13,7 @@ trong kho (xem router.py).
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 
@@ -212,7 +213,10 @@ def _count_back(key: str, default: int) -> int:
     return int(get_settings().get(f"market_store.{key}", default))
 
 
-def refresh(count_back: int | None = None) -> int:
+ProgressFn = Callable[[int, int], None]
+
+
+def refresh(count_back: int | None = None, progress: ProgressFn | None = None) -> int:
     """Cap nhat TANG DAN: tai `count_back` phien gan nhat (mac dinh: config
     market_store.count_back_refresh) cho CAC MA DA CO trong kho, gop vao
     (khu trung theo (symbol, time), giu ban ghi moi hon).
@@ -236,7 +240,7 @@ def refresh(count_back: int | None = None) -> int:
 
     count_back = count_back or _count_back("count_back_refresh", 10)
     symbols = sorted(str(s) for s in existing["symbol"].unique())
-    frame = fetch_ohlcv_bulk(symbols, count_back=count_back)
+    frame = fetch_ohlcv_bulk(symbols, count_back=count_back, progress=progress)
     return save_ohlcv(frame, merge=True)
 
 
@@ -247,6 +251,7 @@ def bootstrap(
     exchanges: list[str] | None = None,
     count_back: int | None = None,
     chunk_size: int = _BOOTSTRAP_CHUNK_SIZE,
+    progress: ProgressFn | None = None,
 ) -> int:
     """Nap TOAN BO lich su gia cho CA SAN (giong scripts/backfill_data.py
     lan dau), dung khi kho HOAN TOAN RONG - vd container vua khoi dong tren
@@ -295,7 +300,11 @@ def bootstrap(
     total = 0
     for i in range(0, len(symbols), chunk_size):
         chunk = symbols[i : i + chunk_size]
-        frame = fetch_ohlcv_bulk(chunk, count_back=count_back)
+        chunk_progress = None
+        if progress is not None:
+            def chunk_progress(done: int, _total: int, offset: int = i) -> None:
+                progress(offset + done, len(symbols))
+        frame = fetch_ohlcv_bulk(chunk, count_back=count_back, progress=chunk_progress)
         total = save_ohlcv(frame, merge=(i > 0))
         log.info(
             "market_store.bootstrap(): da tai %d/%d ma (kho hien co %d dong)",

@@ -174,7 +174,7 @@ def test_bootstrap_fetches_full_history_on_empty_store(isolated_store, monkeypat
         calls["exchanges"] = exchanges
         return symbols_frame
 
-    def fake_fetch_ohlcv_bulk(symbols, count_back):
+    def fake_fetch_ohlcv_bulk(symbols, count_back, progress=None):
         calls["symbols"] = symbols
         calls["count_back"] = count_back
         return ohlcv_frame
@@ -206,7 +206,7 @@ def test_bootstrap_saves_incrementally_per_chunk(isolated_store, monkeypatch):
 
     saved_after_each_chunk: list[set] = []
 
-    def fake_fetch_ohlcv_bulk(symbols, count_back):
+    def fake_fetch_ohlcv_bulk(symbols, count_back, progress=None):
         rows = [[s.lower(), "2024-01-01", 10, 11, 9, 10.5, 1000] for s in symbols]
         return _frame(rows)
 
@@ -242,7 +242,7 @@ def test_bootstrap_count_back_defaults_to_config(isolated_store, monkeypatch):
     )
     seen = {}
 
-    def fake_fetch_ohlcv_bulk(symbols, count_back):
+    def fake_fetch_ohlcv_bulk(symbols, count_back, progress=None):
         seen["count_back"] = count_back
         return _frame([["fpt", "2024-01-01", 10, 11, 9, 10.5, 1000]])
 

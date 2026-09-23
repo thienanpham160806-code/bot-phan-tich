@@ -203,34 +203,33 @@ def _to_results(frame: pd.DataFrame) -> list[ScreenResult]:
     ]
 
 
+def _freshness_note(as_of: datetime | None) -> str | None:
+    """Ghi chu ve do moi cua snapshot dang doc: dang cap nhat o nen (kem tien
+    do) hoac da cu hon phien gan nhat. None neu du lieu moi va khong co gi chay."""
+    stamp = f"{as_of:%d/%m/%Y %H:%M}" if as_of else "không rõ"
+    running = snapshot.progress_text()
+    if running:
+        return f"⏳ {running}. Kết quả dưới đây từ bản tính lúc {stamp}."
+    if snapshot.is_stale():
+        expected = snapshot.last_expected_session()
+        return (
+            f"⚠️ Chưa có dữ liệu phiên {expected:%d/%m/%Y} (bản gần nhất tính lúc "
+            f"{stamp}), kết quả có thể cũ. Gõ /trangthai để xem chi tiết."
+        )
+    return None
+
+
 def screen_report(criteria: ScreenCriteria) -> ScreenReport:
     """Loc snapshot theo `criteria`. KHONG goi mang, KHONG tinh chi bao."""
     frame = snapshot.load_snapshot()
     if frame.empty:
         return ScreenReport(
-            results=[],
-            total_universe=0,
-            as_of=None,
-            note=(
-                "Dữ liệu chưa được tính cho phiên này. Chạy "
-                "`python scripts/build_snapshot.py` (sau khi đã backfill_data.py) trước."
-            ),
+            results=[], total_universe=0, as_of=None, note=snapshot.data_unavailable_message()
         )
 
     as_of = snapshot.snapshot_last_updated()
-    notes = []
-    if snapshot.is_build_in_progress():
-        notes.append(
-            "⏳ Hệ thống đang cập nhật dữ liệu phiên mới ở nền "
-            + (f"(kết quả từ bản tính lúc {as_of:%d/%m/%Y %H:%M})." if as_of else ".")
-        )
-    elif snapshot.is_stale():
-        expected = snapshot.last_expected_session()
-        notes.append(
-            f"⚠️ Dữ liệu chưa được tính cho phiên này (bản gần nhất tính lúc "
-            f"{as_of:%d/%m/%Y %H:%M} — nếu bạn đang xem sau phiên {expected:%d/%m/%Y}, "
-            "kết quả có thể cũ)."
-        )
+    freshness = _freshness_note(as_of)
+    notes = [freshness] if freshness else []
 
     # Dieu kien theo chi so co ban (pe/roe) can data/fundamentals_store.py da
     # duoc gop vao snapshot (xem analysis/snapshot.py:_merge_fundamentals()).
@@ -278,28 +277,10 @@ def today_signals(limit: int | None = None) -> SignalReport:
     """
     frame = snapshot.load_snapshot()
     if frame.empty:
-        return SignalReport(
-            buy=[], sell=[], as_of=None,
-            note=(
-                "Dữ liệu chưa được tính cho phiên này. Chạy "
-                "`python scripts/build_snapshot.py` (sau khi đã backfill_data.py) trước."
-            ),
-        )
+        return SignalReport(buy=[], sell=[], as_of=None, note=snapshot.data_unavailable_message())
 
     as_of = snapshot.snapshot_last_updated()
-    note = None
-    if snapshot.is_build_in_progress():
-        note = (
-            "⏳ Hệ thống đang cập nhật dữ liệu phiên mới ở nền "
-            + (f"(kết quả từ bản tính lúc {as_of:%d/%m/%Y %H:%M})." if as_of else ".")
-        )
-    elif snapshot.is_stale():
-        expected = snapshot.last_expected_session()
-        note = (
-            f"⚠️ Dữ liệu chưa được tính cho phiên này (bản gần nhất tính lúc "
-            f"{as_of:%d/%m/%Y %H:%M} — nếu bạn đang xem sau phiên {expected:%d/%m/%Y}, "
-            "kết quả có thể cũ)."
-        )
+    note = _freshness_note(as_of)
 
     limit = limit or get_settings().get("screener.max_results", 15)
 

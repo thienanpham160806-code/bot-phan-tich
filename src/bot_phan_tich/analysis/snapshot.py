@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import time as time_module
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 
@@ -113,7 +115,9 @@ def _safe_evaluate(task: tuple[str, str | None, pd.DataFrame | None]) -> dict | 
 
 
 def build_snapshot(
-    symbols: list[str] | None = None, max_workers: int | None = None
+    symbols: list[str] | None = None,
+    max_workers: int | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> pd.DataFrame:
     """Tinh khuyen nghi cho toan bo `symbols` (mac dinh: liquid_universe()),
     ghi ra snapshot.parquet. Tra ve chinh DataFrame vua ghi.
@@ -148,6 +152,8 @@ def build_snapshot(
                 rows.append(row)
             else:
                 failed += 1
+            if progress is not None:
+                progress(done, len(tasks))
             if done % _PROGRESS_EVERY == 0 or done == len(tasks):
                 log.info(
                     "build_snapshot: %d/%d ma (%d bi bo qua), RAM dinh %s",
@@ -235,52 +241,166 @@ def is_stale(now: datetime | None = None) -> bool:
     return updated.date() < last_expected_session(now)
 
 
-# ------------------------------------------------------ dung nen luc bot khoi dong
-_build_in_progress = False
+# ------------------------------------------- cap nhat du lieu o nen + trang thai
+STEP_BOOTSTRAP = "Đang nạp kho giá toàn sàn"
+STEP_REFRESH = "Đang cập nhật kho giá"
+STEP_SNAPSHOT = "Đang tính khuyến nghị toàn sàn"
+_ERROR_MAX_CHARS = 200
+
+
+@dataclass
+class BuildStatus:
+    """Trang thai tien trinh cap nhat du lieu o nen. Hien trong /trangthai va
+    trong thong bao cua /loc, /tinhieu khi chua co du lieu - de nguoi dung
+    thay DANG LAM GI, DEN DAU va LOI GI, thay vi mot cau "dang chuan bi"."""
+
+    running: bool = False
+    step: str | None = None
+    done: int = 0
+    total: int = 0
+    started_at: datetime | None = None
+    step_started_at: datetime | None = None
+    finished_at: datetime | None = None
+    last_error: str | None = None
+    last_result: str | None = None
+
+    def eta_seconds(self) -> float | None:
+        """Uoc tinh thoi gian con lai cua buoc hien tai, theo toc do tu dau buoc."""
+        if not self.running or self.done <= 0 or self.total <= 0 or not self.step_started_at:
+            return None
+        elapsed = (_as_local(None) - self.step_started_at).total_seconds()
+        return elapsed / self.done * (self.total - self.done)
+
+
+_status = BuildStatus()
+_pipeline_lock = asyncio.Lock()
+
+
+def get_build_status() -> BuildStatus:
+    """Ban sao trang thai hien tai (khong de noi goi sua nham trang thai that)."""
+    return replace(_status)
 
 
 def is_build_in_progress() -> bool:
-    """True trong luc ensure_fresh_in_background() dang chay - dung de handler
-    /loc, /tinhieu hien thong bao "dang chuan bi du lieu" thay vi doc snapshot cu."""
-    return _build_in_progress
+    return _status.running
 
 
-async def ensure_fresh_in_background() -> None:
-    """Neu snapshot thieu hoac cu hon phien gan nhat: cap nhat kho roi dung
-    lai snapshot, CHAY O NEN (asyncio.to_thread) - KHONG chan bot luc khoi
-    dong. Goi tu bot/main.py nhu mot task nen (asyncio.create_task), khong
-    await truc tiep trong luong khoi dong chinh.
+def _begin_step(step: str) -> None:
+    _status.step = step
+    _status.done = 0
+    _status.total = 0
+    _status.step_started_at = _as_local(None)
+    log.info("cap nhat du lieu: %s", step)
+
+
+def _report_progress(done: int, total: int) -> None:
+    _status.done = done
+    _status.total = total
+
+
+def _short_error(exc: BaseException) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    return text if len(text) <= _ERROR_MAX_CHARS else text[: _ERROR_MAX_CHARS - 1] + "…"
+
+
+def _humanize_seconds(seconds: float) -> str:
+    return "dưới 1 phút" if seconds < 60 else f"{round(seconds / 60)} phút"
+
+
+def progress_text() -> str | None:
+    """Vd "Đang nạp kho giá toàn sàn: 450/1500 mã (khoảng 2 phút nữa)".
+    None neu khong co tien trinh nao dang chay."""
+    status = _status
+    if not status.running or not status.step:
+        return None
+    text = status.step
+    if status.total:
+        text += f": {status.done}/{status.total} mã"
+    eta = status.eta_seconds()
+    if eta is not None:
+        text += f" (khoảng {_humanize_seconds(eta)} nữa)"
+    return text
+
+
+def data_unavailable_message() -> str:
+    """Giai thich VI SAO chua co du lieu cho /loc, /tinhieu - dang lam den
+    dau, hay lan truoc that bai vi loi gi. Van ban THO (chua escape HTML)."""
+    running = progress_text()
+    if running:
+        return f"⏳ {running}. Vui lòng thử lại sau ít phút. Gõ /trangthai để xem chi tiết."
+    if _status.last_error:
+        return (
+            f"⚠️ Lần dựng dữ liệu gần nhất thất bại: {_status.last_error}. "
+            "Gõ /trangthai để xem chi tiết."
+        )
+    return (
+        "Chưa có dữ liệu khuyến nghị. Bot tự nạp dữ liệu khi khởi động và sau "
+        "mỗi phiên (hoặc chạy scripts/backfill_data.py rồi scripts/build_snapshot.py). "
+        "Gõ /trangthai để xem chi tiết."
+    )
+
+
+def _store_is_empty() -> bool:
+    return market_store.load_ohlcv(columns=["symbol"]).empty
+
+
+async def update_market_data(force: bool = False) -> bool:
+    """Cap nhat kho gia roi dung lai snapshot - MOT luong duy nhat cho ca luc
+    khoi dong (ensure_fresh_in_background) va lich quet cuoi phien
+    (bot/main.py:daily_scan_job). Khoa `_pipeline_lock` dam bao hai luong
+    khong chay chong len nhau (cung ghi mot file parquet). Moi buoc nang
+    chay trong thread rieng (asyncio.to_thread), khong chan event loop.
 
     Kho HOAN TOAN RONG (vd container Render goi Free khong co dia luu ben
     vung, moi lan restart la mat sach data/) can market_store.bootstrap()
-    (nap toan bo, ~2-3 phut) thay vi refresh() (chi tai bu cho ma DA CO,
-    tren kho rong se khong lam gi ca - xem market_store.py). Neu khong phan
-    biet hai truong hop nay, bot deploy tren moi truong dia tam se MAI MAI
-    khong co du lieu toan san (/loc, /tinhieu luon "dang chuan bi du lieu",
-    /khuyennghi cho mot ma bat ky phai goi mang truc tiep moi lan - CHAM).
+    (nap toan bo) thay vi refresh() (chi tai bu cho ma DA CO, tren kho rong
+    khong lam gi ca).
+
+    `force=False`: bo qua neu snapshot con moi. Cap nhat _status o MOI buoc,
+    ke ca khi loi - loi duoc giu lai de hien cho nguoi dung. Tra ve True neu
+    da thuc su chay.
     """
-    global _build_in_progress
-    if not is_stale():
-        return
+    async with _pipeline_lock:
+        if not force and not is_stale():
+            return False
 
-    from ..data import market_store  # tranh import vong o muc module
+        _status.running = True
+        _status.started_at = _as_local(None)
+        _status.finished_at = None
+        _status.last_error = None
+        try:
+            if await asyncio.to_thread(_store_is_empty):
+                _begin_step(STEP_BOOTSTRAP)
+                rows = await asyncio.to_thread(market_store.bootstrap, progress=_report_progress)
+                if rows == 0:
+                    _status.last_error = (
+                        "Không tải được dữ liệu giá (nguồn Vietcap trả về rỗng — có thể "
+                        "đang bị giới hạn tần suất hoặc chặn IP). Sẽ thử lại lần quét sau."
+                    )
+                    return True
+            else:
+                _begin_step(STEP_REFRESH)
+                await asyncio.to_thread(market_store.refresh, progress=_report_progress)
 
-    _build_in_progress = True
-    log.info("ensure_fresh_in_background: snapshot cu/thieu, dang cap nhat o nen...")
-    try:
-        if market_store.load_ohlcv().empty:
-            updated_rows = await asyncio.to_thread(market_store.bootstrap)
-            log.info(
-                "ensure_fresh_in_background: market_store.bootstrap() -> %d dong", updated_rows
-            )
-        else:
-            updated_rows = await asyncio.to_thread(market_store.refresh)
-            log.info(
-                "ensure_fresh_in_background: market_store.refresh() -> %d dong", updated_rows
-            )
-        frame = await asyncio.to_thread(build_snapshot)
-        log.info("ensure_fresh_in_background: build_snapshot() -> %d ma", len(frame))
-    except Exception:
-        log.exception("ensure_fresh_in_background: that bai")
-    finally:
-        _build_in_progress = False
+            _begin_step(STEP_SNAPSHOT)
+            frame = await asyncio.to_thread(build_snapshot, progress=_report_progress)
+            _status.last_result = f"{len(frame)} mã"
+            if frame.empty:
+                _status.last_error = (
+                    "Kho giá đã có nhưng không mã nào đủ điều kiện thanh khoản — "
+                    "kiểm tra dữ liệu hoặc ngưỡng universe.* trong config."
+                )
+        except Exception as exc:  # noqa: BLE001 - loi phai HIEN cho nguoi dung, khong nuot
+            log.exception("update_market_data: that bai")
+            _status.last_error = _short_error(exc)
+        finally:
+            _status.running = False
+            _status.step = None
+            _status.finished_at = _as_local(None)
+        return True
+
+
+async def ensure_fresh_in_background() -> None:
+    """Goi tu bot/main.py nhu task nen luc khoi dong: neu snapshot thieu/cu thi
+    cap nhat (xem update_market_data) - KHONG chan bot khoi dong."""
+    await update_market_data(force=False)
