@@ -20,6 +20,21 @@ universe:
   min_price: 5000                 # dong
   max_price: 300000
   min_listed_days: 250
+  # 0 = khong gioi han. Khac 0: chi giu N ma thanh khoan nhat (theo khoi
+  # luong TB 20 phien) - de vua may chu nho. Ghi de: bien UNIVERSE_MAX_SYMBOLS.
+  max_symbols: 0
+
+snapshot:
+  # So luong tinh snapshot (analysis/snapshot.py). 1 = tuan tu - du nhanh
+  # (~15 ms/ma) va chi mot ban sao kho trong RAM. Khong dung da tien trinh.
+  max_workers: 1
+
+market_store:
+  # So phien tai cho moi ma. 500 phien (~2 nam) van du cho moi chi bao
+  # (Ichimoku can 52+26, RSI thich ung can 252) ma kho nho hon ~1/3 so voi
+  # 750. Ghi de count_back_bootstrap: bien MARKET_COUNT_BACK.
+  count_back_bootstrap: 500   # lan nap dau / khi kho rong
+  count_back_refresh: 10      # cap nhat tang dan hang ngay
 
 signals:
   # He so ATR dung cho diem dung lo / muc tieu, xem analysis/scoring.py va

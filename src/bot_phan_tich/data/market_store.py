@@ -190,9 +190,16 @@ def save_symbols(frame: pd.DataFrame) -> None:
     _cache.pop(str(path), None)
 
 
-def refresh(count_back: int = 10) -> int:
-    """Cap nhat TANG DAN: tai `count_back` phien gan nhat cho CAC MA DA CO
-    trong kho, gop vao (khu trung theo (symbol, time), giu ban ghi moi hon).
+def _count_back(key: str, default: int) -> int:
+    from ..config import get_settings
+
+    return int(get_settings().get(f"market_store.{key}", default))
+
+
+def refresh(count_back: int | None = None) -> int:
+    """Cap nhat TANG DAN: tai `count_back` phien gan nhat (mac dinh: config
+    market_store.count_back_refresh) cho CAC MA DA CO trong kho, gop vao
+    (khu trung theo (symbol, time), giu ban ghi moi hon).
 
     Dung cho lich chay hang ngay (xem bot/scheduler.py, bot/main.py:
     daily_scan_job) - NGAN va nhanh hon nhieu so voi backfill lan dau. Neu
@@ -202,7 +209,7 @@ def refresh(count_back: int = 10) -> int:
     goi noi (vd ensure_fresh_in_background()) tu quyet dinh co goi
     bootstrap() thay the hay khong.
     """
-    existing = load_ohlcv()
+    existing = load_ohlcv(columns=["symbol"])
     if existing.empty:
         log.warning(
             "market_store.refresh(): kho rong, chay scripts/backfill_data.py lan dau truoc"
@@ -211,7 +218,8 @@ def refresh(count_back: int = 10) -> int:
 
     from .vietcap import fetch_ohlcv_bulk  # tranh import vong o muc module
 
-    symbols = sorted(existing["symbol"].unique().tolist())
+    count_back = count_back or _count_back("count_back_refresh", 10)
+    symbols = sorted(str(s) for s in existing["symbol"].unique())
     frame = fetch_ohlcv_bulk(symbols, count_back=count_back)
     return save_ohlcv(frame, merge=True)
 
@@ -221,7 +229,7 @@ _BOOTSTRAP_CHUNK_SIZE = 150  # xem docstring bootstrap(): giam dinh RAM + luu ta
 
 def bootstrap(
     exchanges: list[str] | None = None,
-    count_back: int = 750,
+    count_back: int | None = None,
     chunk_size: int = _BOOTSTRAP_CHUNK_SIZE,
 ) -> int:
     """Nap TOAN BO lich su gia cho CA SAN (giong scripts/backfill_data.py
@@ -246,6 +254,11 @@ def bootstrap(
          lo thu hai) - lan chay lai ke tiep (do is_stale()/kho van con thieu
          ma) chi can tai bu phan con thieu, khong phai lam lai tu dau 100%.
 
+    `count_back` mac dinh lay tu config market_store.count_back_bootstrap
+    (500 phien ~ 2 nam; ghi de bang bien MARKET_COUNT_BACK): van du cho moi
+    chi bao - Ichimoku can 52+26 phien, RSI thich ung can 252 - nhung kho
+    nho hon ~1/3 so voi 750 phien truoc day.
+
     Cham hon refresh() nhieu (~2-3 phut cho toan san, do thuc te 1.523 ma/
     123s) - chi nen goi khi phat hien kho rong, khong goi lap lai moi vong
     quet dinh ky (xem analysis/snapshot.py:ensure_fresh_in_background()).
@@ -253,6 +266,7 @@ def bootstrap(
     from ..config import get_settings
     from .vietcap import fetch_all_symbols, fetch_ohlcv_bulk  # tranh import vong
 
+    count_back = count_back or _count_back("count_back_bootstrap", 500)
     exchanges = exchanges or get_settings().get(
         "universe.exchanges", ["HOSE", "HNX", "UPCOM"]
     )

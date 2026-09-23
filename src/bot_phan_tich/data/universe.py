@@ -55,7 +55,7 @@ def liquid_universe(as_of: date | None = None, use_watchlist: bool = False) -> l
         )
         frame = frame[frame["symbol"].isin(wanted)]
 
-    keep: list[str] = []
+    passed: list[tuple[str, float]] = []
     for symbol, group in frame.groupby("symbol", observed=True, sort=False):
         if len(group) < min_days:
             continue
@@ -63,8 +63,17 @@ def liquid_universe(as_of: date | None = None, use_watchlist: bool = False) -> l
         last_close = float(group["close"].iloc[-1])
         avg_volume = float(group["volume"].tail(20).mean())
         if min_price <= last_close <= max_price and avg_volume >= min_volume:
-            keep.append(str(symbol))
+            passed.append((str(symbol), avg_volume))
 
+    # Gioi han quy mo de vua may chu nho (vd Render goi Free 512 MB): chi giu N
+    # ma thanh khoan nhat theo khoi luong TB 20 phien. 0 = khong gioi han.
+    max_symbols = int(settings.get("universe.max_symbols", 0) or 0)
+    if 0 < max_symbols < len(passed):
+        passed.sort(key=lambda item: item[1], reverse=True)
+        log.info("liquid_universe: gioi han con %d/%d ma", max_symbols, len(passed))
+        passed = passed[:max_symbols]
+
+    keep = [symbol for symbol, _ in passed]
     log.info("Vu tru du dieu kien tai %s: %d ma (tu kho, khong goi mang)", as_of, len(keep))
     return keep
 

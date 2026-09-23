@@ -57,13 +57,35 @@ class Paths:
         self.cache_db.parent.mkdir(parents=True, exist_ok=True)
 
 
+# Khoa cau hinh cho phep ghi de bang bien moi truong - de dat rieng tren may
+# chu (vd Render) ma khong phai sua file settings.yaml trong repo.
+_ENV_OVERRIDES: dict[str, tuple[str, type]] = {
+    "universe.max_symbols": ("UNIVERSE_MAX_SYMBOLS", int),
+    "market_store.count_back_bootstrap": ("MARKET_COUNT_BACK", int),
+}
+
+
 class Settings:
-    """Bao mong quanh settings.yaml, truy cap bang duong dan dau cham."""
+    """Bao mong quanh settings.yaml, truy cap bang duong dan dau cham. Mot so
+    khoa co the bi ghi de bang bien moi truong (xem _ENV_OVERRIDES)."""
 
     def __init__(self, raw: dict[str, Any]):
         self._raw = raw
 
     def get(self, dotted: str, default: Any = None) -> Any:
+        override = _ENV_OVERRIDES.get(dotted)
+        if override is not None:
+            env_name, cast = override
+            raw_value = os.getenv(env_name, "").strip()
+            if raw_value:
+                try:
+                    return cast(raw_value)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Bien moi truong {env_name}={raw_value!r} khong hop le "
+                        f"(can kieu {cast.__name__})"
+                    ) from exc
+
         node: Any = self._raw
         for part in dotted.split("."):
             if not isinstance(node, dict) or part not in node:

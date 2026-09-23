@@ -82,9 +82,11 @@ bot lần đầu, nếu không `/loc` và `/tinhieu` sẽ báo "đang chuẩn b�
 
 ```bash
 # 1. Nạp giá TOÀN SÀN (HOSE/HNX/UPCOM) vào kho parquet cục bộ (data/market/ohlcv.parquet).
-#    Lần đầu tải ~750 phiên (~3 năm)/mã cho ~1.500 mã — mất khoảng 2-3 phút
-#    (đo thực tế: 1.523 mã trong 123 giây), tuỳ tốc độ mạng. Các lần sau chỉ
-#    tải thêm vài phiên mới nhất và gộp vào kho cũ — vài chục giây.
+#    Lần đầu tải 500 phiên (~2 năm)/mã cho ~1.500 mã — mất khoảng 2 phút,
+#    tuỳ tốc độ mạng (500 phiên vẫn dư cho mọi chỉ báo: Ichimoku cần 52+26,
+#    RSI thích ứng cần 252). Các lần sau chỉ tải thêm vài phiên mới nhất và
+#    gộp vào kho cũ — vài chục giây. Số phiên chỉnh ở config/settings.yaml
+#    (market_store.count_back_bootstrap) hoặc biến MARKET_COUNT_BACK.
 python scripts/backfill_data.py
 
 # 2. Tính khuyến nghị (MACD/RSI/Ichimoku hợp lưu) cho MỌI mã đủ điều kiện
@@ -268,6 +270,17 @@ mở một server trả `200 OK`) để bot qua được vòng quét port của 
 **Deploy:** Render dashboard → **New +** → **Blueprint** (hoặc **Web
 Service** thủ công, chọn Docker runtime) → chọn repo này, nhánh `main` →
 điền `TELEGRAM_BOT_TOKEN` → Deploy.
+
+**Giới hạn quy mô cho vừa 512 MB RAM** (tuỳ chọn, đặt ở mục Environment
+của service, không cần sửa file trong repo):
+
+| Biến | Ý nghĩa | Gợi ý cho Render Free |
+|---|---|---|
+| `UNIVERSE_MAX_SYMBOLS` | Chỉ tính snapshot cho N mã thanh khoản nhất (0 = không giới hạn) | `400` |
+| `MARKET_COUNT_BACK` | Số phiên tải cho mỗi mã khi nạp kho lần đầu (mặc định 500) | để trống |
+
+Đo RAM trước khi deploy: `python scripts/bench_snapshot.py` (in thời gian
+và RAM đỉnh khi dựng snapshot).
 
 **Vấn đề còn lại — BẮT BUỘC phải xử lý:** gói Free của Render tự "ngủ"
 (spin down) sau **~15 phút không có request HTTP nào gọi đến** service.

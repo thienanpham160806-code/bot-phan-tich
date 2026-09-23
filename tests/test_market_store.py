@@ -214,6 +214,28 @@ def test_bootstrap_saves_incrementally_per_chunk(isolated_store, monkeypatch):
     assert saved_after_each_chunk[2] == {"A", "B", "C", "D", "E"}
 
 
+def test_bootstrap_count_back_defaults_to_config(isolated_store, monkeypatch):
+    """Khong truyen count_back -> lay tu config (ghi de duoc bang MARKET_COUNT_BACK)."""
+    from bot_phan_tich.data import vietcap as vietcap_mod
+
+    monkeypatch.setenv("MARKET_COUNT_BACK", "321")
+    monkeypatch.setattr(
+        vietcap_mod, "fetch_all_symbols",
+        lambda exchanges: pd.DataFrame({"symbol": ["FPT"], "exchange": ["HOSE"]}),
+    )
+    seen = {}
+
+    def fake_fetch_ohlcv_bulk(symbols, count_back):
+        seen["count_back"] = count_back
+        return _frame([["fpt", "2024-01-01", 10, 11, 9, 10.5, 1000]])
+
+    monkeypatch.setattr(vietcap_mod, "fetch_ohlcv_bulk", fake_fetch_ohlcv_bulk)
+
+    market_store.bootstrap()
+
+    assert seen["count_back"] == 321
+
+
 def test_bootstrap_returns_zero_when_symbol_list_empty(isolated_store, monkeypatch):
     from bot_phan_tich.data import vietcap as vietcap_mod
 

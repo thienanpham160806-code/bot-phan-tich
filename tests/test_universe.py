@@ -43,6 +43,32 @@ def test_liquid_universe_filters_by_price_volume_and_history(isolated_store):
     assert result == ["AAA"]
 
 
+def _seed_liquid(volumes: dict[str, float]) -> None:
+    rows = []
+    for symbol, volume in volumes.items():
+        rows += _daily_rows(symbol, 260, price=20_000, volume=volume)
+    market_store.save_ohlcv(pd.DataFrame(rows, columns=market_store.OHLCV_COLUMNS), merge=False)
+    market_store.save_symbols(
+        pd.DataFrame({"symbol": list(volumes), "exchange": ["HOSE"] * len(volumes)})
+    )
+
+
+def test_liquid_universe_max_symbols_keeps_most_liquid(isolated_store, monkeypatch):
+    _seed_liquid({"LOW": 150_000, "HIGH": 900_000, "MID": 400_000})
+    monkeypatch.setenv("UNIVERSE_MAX_SYMBOLS", "2")
+
+    result = universe.liquid_universe()
+
+    assert result == ["HIGH", "MID"]  # sap xep giam dan theo khoi luong TB 20 phien
+
+
+def test_liquid_universe_max_symbols_zero_means_unlimited(isolated_store, monkeypatch):
+    _seed_liquid({"AAA": 150_000, "BBB": 900_000, "CCC": 400_000})
+    monkeypatch.setenv("UNIVERSE_MAX_SYMBOLS", "0")
+
+    assert set(universe.liquid_universe()) == {"AAA", "BBB", "CCC"}
+
+
 def test_liquid_universe_use_watchlist_bypasses_store(isolated_store, monkeypatch):
     monkeypatch.setattr(
         universe, "get_universe_config", lambda: {"watchlist": ["fpt", "vnm"]}
