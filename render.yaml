@@ -20,6 +20,8 @@ services:
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
       - key: LOG_LEVEL
         value: INFO
       # Cau hinh nhe cho goi Free (512 MB RAM, KHONG co dia luu ben vung: moi
