@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..config import get_paths
+from ..config import bot_timezone, get_paths, get_settings
 from ..logging_conf import get_logger
 
 log = get_logger(__name__)
@@ -156,11 +156,12 @@ def frames_by_symbol(
 
 
 def last_updated() -> datetime | None:
-    """Thoi diem file OHLCV duoc ghi lan gan nhat, None neu chua co kho."""
+    """Thoi diem file OHLCV duoc ghi lan gan nhat (gan mui gio bot.timezone),
+    None neu chua co kho."""
     path = ohlcv_path()
     if not path.exists():
         return None
-    return datetime.fromtimestamp(path.stat().st_mtime)
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=bot_timezone())
 
 
 def save_ohlcv(frame: pd.DataFrame, merge: bool = True) -> int:
@@ -191,8 +192,6 @@ def save_symbols(frame: pd.DataFrame) -> None:
 
 
 def _count_back(key: str, default: int) -> int:
-    from ..config import get_settings
-
     return int(get_settings().get(f"market_store.{key}", default))
 
 
@@ -263,7 +262,6 @@ def bootstrap(
     123s) - chi nen goi khi phat hien kho rong, khong goi lap lai moi vong
     quet dinh ky (xem analysis/snapshot.py:ensure_fresh_in_background()).
     """
-    from ..config import get_settings
     from .vietcap import fetch_all_symbols, fetch_ohlcv_bulk  # tranh import vong
 
     count_back = count_back or _count_back("count_back_bootstrap", 500)

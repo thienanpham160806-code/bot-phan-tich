@@ -29,7 +29,7 @@ from datetime import time as dt_time
 
 import pandas as pd
 
-from ..config import get_paths, get_settings
+from ..config import bot_timezone, get_paths, get_settings
 from ..data import fundamentals_store, market_store
 from ..data.universe import liquid_universe
 from ..logging_conf import get_logger
@@ -189,10 +189,23 @@ def load_snapshot() -> pd.DataFrame:
 
 
 def snapshot_last_updated() -> datetime | None:
+    """Thoi diem ghi snapshot, CO gan mui gio bot.timezone (khong phu thuoc
+    mui gio cua may chu)."""
     path = snapshot_path()
     if not path.exists():
         return None
-    return datetime.fromtimestamp(path.stat().st_mtime)
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=bot_timezone())
+
+
+def _as_local(now: datetime | None) -> datetime:
+    """Quy `now` ve gio bot.timezone. Gio khong gan mui gio duoc coi la DA la
+    gio dia phuong cua bot (khong phai gio may chu)."""
+    tz = bot_timezone()
+    if now is None:
+        return datetime.now(tz)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=tz)
+    return now.astimezone(tz)
 
 
 def last_expected_session(now: datetime | None = None) -> date:
@@ -200,8 +213,12 @@ def last_expected_session(now: datetime | None = None) -> date:
     `now`. Xap xi don gian (khong tinh ngay le) dua tren gio dong cua
     `_MARKET_CLOSE_CUTOFF` va cuoi tuan - du dung de canh bao "du lieu cu",
     khong doi hoi chinh xac tuyet doi.
+
+    Tinh theo gio bot.timezone (Viet Nam), KHONG theo gio may chu: Render
+    chay UTC, lech 7 gio - neu dung datetime.now() tran thi 15h30 gio VN
+    (08h30 UTC) bi coi la "truoc gio dong cua".
     """
-    now = now or datetime.now()
+    now = _as_local(now)
     d = now.date()
     if now.weekday() >= 5 or now.time() < _MARKET_CLOSE_CUTOFF:
         d -= timedelta(days=1)

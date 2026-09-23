@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import yaml
 from dotenv import load_dotenv
@@ -111,6 +113,18 @@ _MISSING = object()
 def get_settings() -> Settings:
     with open(CONFIG_DIR / "settings.yaml", encoding="utf-8") as fh:
         return Settings(yaml.safe_load(fh))
+
+
+def bot_timezone() -> ZoneInfo:
+    """Mui gio giao dich cua bot (config bot.timezone, mac dinh Asia/Ho_Chi_Minh)."""
+    return ZoneInfo(get_settings().get("bot.timezone", "Asia/Ho_Chi_Minh"))
+
+
+def now_local() -> datetime:
+    """Gio hien tai theo bot.timezone, CO gan mui gio. Dung thay cho
+    datetime.now() tran: may chu (vd Render) chay UTC, lech 7 gio so voi gio
+    giao dich Viet Nam - moi phep so voi gio dong cua 15h phai theo gio VN."""
+    return datetime.now(bot_timezone())
 
 
 @lru_cache(maxsize=1)

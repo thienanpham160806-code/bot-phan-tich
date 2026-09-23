@@ -1,3 +1,7 @@
+import os
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -5,6 +9,8 @@ import pytest
 from bot_phan_tich.analysis import snapshot as snapshot_mod
 from bot_phan_tich.config import Paths
 from bot_phan_tich.data import fundamentals_store, market_store
+
+VN = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 @pytest.fixture
@@ -71,3 +77,64 @@ def test_build_snapshot_missing_symbol_is_skipped_not_crash(isolated_paths):
     _seed_store({"AAA": 150})
     frame = snapshot_mod.build_snapshot(["AAA", "NOT_IN_STORE"])
     assert list(frame["symbol"]) == ["AAA"]
+
+
+# ------------------------------------------------------------------ mui gio
+def _write_snapshot_at(vn_time: datetime) -> None:
+    """Tao file snapshot co mtime dung bang thoi diem `vn_time` (gio VN)."""
+    path = snapshot_mod.snapshot_path()
+    pd.DataFrame({"symbol": ["AAA"]}).to_parquet(path, index=False)
+    ts = vn_time.timestamp()
+    os.utime(path, (ts, ts))
+
+
+def _utc_server_clock(monkeypatch, utc_now: datetime) -> None:
+    """Gia lap may chu chay UTC (nhu Render): datetime.now() KHONG kem mui gio
+    tra ve gio UTC; datetime.now(tz) quy doi dung sang tz."""
+
+    class UtcServerDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return utc_now.astimezone(tz) if tz else utc_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(snapshot_mod, "datetime", UtcServerDatetime)
+
+
+def test_snapshot_built_after_close_is_fresh_on_utc_server(isolated_paths, monkeypatch):
+    """Yeu cau Phan 3: may chu UTC, gio VN 15:30 -> snapshot vua dung luc
+    15:20 (gio VN) phai duoc coi la MOI."""
+    _write_snapshot_at(datetime(2026, 9, 23, 15, 20, tzinfo=VN))  # thu Tu
+    _utc_server_clock(monkeypatch, datetime(2026, 9, 23, 8, 30, tzinfo=timezone.utc))
+
+    assert snapshot_mod.is_stale() is False
+    assert snapshot_mod.last_expected_session() == date(2026, 9, 23)
+
+
+def test_yesterday_snapshot_is_stale_after_todays_close_on_utc_server(
+    isolated_paths, monkeypatch
+):
+    """Loi cu: 16:00 gio VN = 09:00 UTC < 15:10 -> ban cu tuong "chua dong
+    cua", coi snapshot hom qua van moi suot 7 tieng. Gio phai la CU."""
+    _write_snapshot_at(datetime(2026, 9, 23, 15, 20, tzinfo=VN))
+    _utc_server_clock(monkeypatch, datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc))
+
+    assert snapshot_mod.is_stale() is True
+
+
+def test_before_close_expects_previous_session(isolated_paths):
+    _write_snapshot_at(datetime(2026, 9, 23, 15, 20, tzinfo=VN))
+    morning = datetime(2026, 9, 24, 1, 0, tzinfo=timezone.utc)  # 08:00 gio VN
+    assert snapshot_mod.last_expected_session(morning) == date(2026, 9, 23)
+    assert snapshot_mod.is_stale(morning) is False
+
+
+def test_weekend_expects_friday_session():
+    saturday = datetime(2026, 9, 26, 10, 0, tzinfo=VN)
+    assert snapshot_mod.last_expected_session(saturday) == date(2026, 9, 25)
+
+
+def test_snapshot_last_updated_is_timezone_aware(isolated_paths):
+    _write_snapshot_at(datetime(2026, 9, 23, 15, 20, tzinfo=VN))
+    updated = snapshot_mod.snapshot_last_updated()
+    assert updated.utcoffset() is not None
+    assert updated == datetime(2026, 9, 23, 15, 20, tzinfo=VN)
