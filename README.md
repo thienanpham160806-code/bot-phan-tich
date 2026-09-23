@@ -225,39 +225,24 @@ phòng theo thứ tự khai báo ở `config/settings.yaml: data.price_sources` 
 
 Bot dùng cơ chế **long polling** (`dispatcher.start_polling()`) — không cần mở port mạng, không cần cấu hình webhook hay SSL domain. Bạn có thể vận hành bot linh hoạt theo các cách dưới đây:
 
-### 7.1. Chạy ngầm trên Windows (Không cần mở VS Code / Antigravity)
+### 7.1. Chạy trên máy cá nhân (để thử / phát triển)
 
-Trong thư mục gốc dự án đã chuẩn bị sẵn các công cụ 1-click (đều gọi
-`scripts/windows/bot.ps1`):
+Bản chạy chính thức đặt trên Render (mục 7.3). Khi cần chạy thử trên máy:
 
-- **`chay_bot_an.bat`** *(Khuyên dùng)*: chạy bot ngầm bằng `pythonw.exe`
-  (không có cửa sổ). Dùng `pythonw.exe` trong `.venv` của repo nếu có, không
-  thì `pythonw` trên PATH. Bot được tạo qua WMI nên **không thuộc cửa sổ nào**:
-  đóng terminal, VS Code hay Antigravity, bot vẫn chạy (đã kiểm chứng bằng
-  cách giết cả cây tiến trình của cửa sổ khởi chạy). Script chờ tới khi bot
-  kết nối Telegram rồi mới báo thành công; nếu bot thoát ngay (vd thiếu
-  `TELEGRAM_BOT_TOKEN`) thì in 15 dòng log cuối.
-- **`tat_bot.bat`**: dừng bot. Chỉ dừng đúng tiến trình bot (nhận theo dòng
-  lệnh), không đụng các chương trình `pythonw` khác.
-- **`kiem_tra_bot.bat`**: bot có đang chạy không, PID, RAM đang dùng.
-- **`chay_bot_hien_log.bat`**: chạy bot trong cửa sổ console để xem log trực
-  tiếp (đóng cửa sổ là bot dừng). Từ chối chạy nếu bot đang chạy ngầm — hai
-  tiến trình cùng một token sẽ bị Telegram báo lỗi xung đột.
+```bash
+python scripts/run_bot.py
+```
 
-Log ghi vào **`logs/bot.log`**. Không cần đặt `PYTHONPATH` hay
-`pip install -e .` — các file trên chạy qua `scripts/run_bot.py`, tự thêm
-`src/` vào đường dẫn.
+Không cần đặt `PYTHONPATH` hay `pip install -e .` — script tự thêm `src/`
+vào đường dẫn. Log hiện trên cửa sổ và ghi vào **`logs/bot.log`**; đóng cửa
+sổ (hoặc `Ctrl+C`) là bot dừng.
 
-**Cách kiểm tra bot còn sống:** chạy `kiem_tra_bot.bat`; hoặc gõ `/trangthai`
-trên Telegram (trả lời được là bot đang chạy); hoặc mở Task Manager → tab
-*Details* → tìm `pythonw.exe` (bấm chuột phải tiêu đề cột → *Select columns*
-→ *Command line* để thấy dòng lệnh chứa `run_bot.py`).
+> ⚠️ **Tạm dừng service trên Render trước khi chạy trên máy.** Hai tiến
+> trình dùng chung một `TELEGRAM_BOT_TOKEN` sẽ tranh nhau nhận tin nhắn và
+> Telegram báo lỗi xung đột (`Conflict: terminated by other getUpdates`).
 
-> 💡 **Tự động chạy mỗi khi bật máy tính:**
-> 1. Nhấn `Windows + R` ➔ gõ `shell:startup` ➔ Enter (thư mục Startup mở ra).
-> 2. Chuột phải vào `chay_bot_an.bat` ➔ *Show more options* ➔ *Create shortcut*.
-> 3. Kéo shortcut vào thư mục Startup, rồi chuột phải shortcut ➔ *Properties*
->    ➔ thêm ` tudong` vào cuối ô *Target* (để cửa sổ tự đóng, không chờ bấm phím).
+**Cách kiểm tra bot còn sống:** gõ `/trangthai` trên Telegram (trả lời được
+là bot đang chạy).
 
 ### 7.2. Chạy 24/7 vĩnh viễn trên Máy chủ Cloud / VPS Linux (Docker)
 
@@ -310,8 +295,8 @@ docker compose logs -f
 | (b) | Render gói trả phí + **Persistent Disk** | Đầy đủ, không mất khi restart | Trả phí hàng tháng | Cần chạy 24/7 lâu dài |
 | (c) | Render Free + vũ trụ rút gọn 300 mã + UptimeRobot | Rút gọn, nạp lại mỗi lần restart | Miễn phí | Muốn bot online 24/7 mà không trả phí, chấp nhận hạn chế |
 
-**Khuyến nghị: dùng (a) khi demo và chấm bài.** Chạy `chay_bot_an.bat` trên
-máy cá nhân sau khi đã chạy `scripts/backfill_data.py` và
+**Khuyến nghị: dùng (a) khi demo và chấm bài.** Chạy `python scripts/run_bot.py`
+trên máy cá nhân sau khi đã chạy `scripts/backfill_data.py` và
 `scripts/build_snapshot.py` — có ngay dữ liệu toàn sàn, `/loc` trả lời tức
 thì. (c) chỉ là phương án dự phòng "cho bot luôn online", không nên dùng để
 trình diễn trước hội đồng vì có thể đúng lúc đó container vừa restart và

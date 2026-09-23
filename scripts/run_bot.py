@@ -1,9 +1,7 @@
-"""Diem khoi chay bot khong can PYTHONPATH hay `pip install -e .` - dung cho
-cac file .bat tren Windows (scripts/windows/bot.ps1).
+"""Diem khoi chay bot khong can PYTHONPATH hay `pip install -e .`.
 
 Tu them src/ vao duong dan va chuyen thu muc lam viec ve goc repo (de .env,
-data/, logs/bot.log dung cho), vi tien trinh chay ngam duoc tao qua WMI khong
-ke thua bien moi truong cua cua so da khoi dong no.
+data/, logs/bot.log dung cho) du duoc goi tu thu muc nao.
 
     python scripts/run_bot.py     # tuong duong python -m bot_phan_tich.bot.main
 """
