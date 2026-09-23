@@ -22,14 +22,25 @@ Cac chi tiet duoi day DA XAC NHAN truc tiep tu tai lieu API chinh thuc cua DNSE
 
 Repo con lai: https://github.com/dnse-tech/openapi-sdk . Tai lieu API:
 https://developers.dnse.com.vn
+
+KHONG KET NOI DUOC (vd Render dat o Singapore: connect timeout toi
+openapi.dnse.com.vn, trong khi tu may ca nhan o VN goi binh thuong): SDK mac
+dinh cho ket noi 30s va urllib3 tu thu lai 3 lan -> ~2 phut/lan goi, nhan
+them 5 lan thu cua _call_ohlc thanh >10 phut treo cho MOI ma truoc khi router
+chuyen sang Vietcap. Vi vay: cho ket noi toi da _CONNECT_TIMEOUT giay, loi
+ket noi KHONG thu lai, va "ngat mach" _DOWN_COOLDOWN giay - trong thoi gian
+do moi lan goi bao loi ngay de router dung nguon ke tiep.
 """
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import date, datetime, timezone
 
 import pandas as pd
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+import urllib3
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from ..config import get_secrets
 from ..logging_conf import get_logger
@@ -48,6 +59,42 @@ MARKET_ID_TO_EXCHANGE = {"STO": "HOSE", "STX": "HNX", "UPX": "UPCOM"}
 EXCHANGE_TO_MARKET_ID = {v: k for k, v in MARKET_ID_TO_EXCHANGE.items()}
 _INDEX_SYMBOLS = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30"}
 _INSTRUMENTS_PAGE_SIZE = 100
+
+_CONNECT_TIMEOUT = 5.0
+_READ_TIMEOUT = 30.0
+_DOWN_COOLDOWN = 15 * 60  # giay bo qua DNSE sau mot lan khong ket noi duoc
+
+_down_lock = threading.Lock()
+_down_until = 0.0  # time.monotonic(); > hien tai = dang ngat mach
+
+
+class DnseUnreachable(ProviderError):
+    """Khong ket noi duoc may chu DNSE (timeout/tu choi ket noi/DNS) - thu lai
+    ngay cung vo ich, nen khong retry va router chuyen nguon ke tiep."""
+
+
+def _is_connection_error(exc: BaseException) -> bool:
+    reason = exc.reason if isinstance(exc, urllib3.exceptions.MaxRetryError) else exc
+    # NewConnectionError (tu choi ket noi, loi DNS) la lop con cua ConnectTimeoutError.
+    return isinstance(reason, urllib3.exceptions.ConnectTimeoutError)
+
+
+def _mark_down(exc: BaseException) -> None:
+    global _down_until
+    with _down_lock:
+        _down_until = time.monotonic() + _DOWN_COOLDOWN
+    log.warning(
+        "Khong ket noi duoc DNSE (%s) - bo qua DNSE, dung nguon ke tiep trong %d phut",
+        exc, _DOWN_COOLDOWN // 60,
+    )
+
+
+def _raise_if_down() -> None:
+    remaining = _down_until - time.monotonic()
+    if remaining > 0:
+        raise DnseUnreachable(
+            f"DNSE khong ket noi duoc, tam bo qua (thu lai sau {remaining / 60:.0f} phut)"
+        )
 
 
 def _to_epoch(value: date, end_of_day: bool = False) -> int:
@@ -89,14 +136,38 @@ class DnseProvider(PriceProvider):
                     "(goi PyPI: dnse-sdk-openapi)"
                 ) from exc
 
-            self._client = DNSEClient(
+            client = DNSEClient(
                 api_key=secrets.dnse_api_key,
                 api_secret=secrets.dnse_api_secret,
                 base_url=secrets.dnse_base_url,
                 api_version=secrets.dnse_api_version,
             )
+            # SDK khong cho truyen timeout/retry: thay PoolManager noi bo (cung
+            # tham so nhu SDK, chi doi timeout va bo thu lai khi loi ket noi).
+            # Neu ban SDK sau doi ten thuoc tinh thi giu nguyen mac dinh cua SDK.
+            if hasattr(client, "_http"):
+                client._http = urllib3.PoolManager(
+                    num_pools=10, maxsize=10, block=False,
+                    timeout=urllib3.Timeout(connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT),
+                    retries=urllib3.Retry(total=2, connect=0, read=0),
+                    assert_hostname=False,
+                )
+            self._client = client
             log.info("Da khoi tao DNSE client (%s)", secrets.dnse_base_url)
         return self._client
+
+    def _get(self, what: str, call):
+        """Goi SDK qua ngat mach: dang ngat thi bao loi ngay; loi ket noi thi
+        bat ngat mach va nem DnseUnreachable (khong retry)."""
+        _raise_if_down()
+        try:
+            status, body = call()
+        except Exception as exc:  # SDK nem nhieu loai loi khac nhau
+            if _is_connection_error(exc):
+                _mark_down(exc)
+                raise DnseUnreachable(f"DNSE {what}: khong ket noi duoc may chu: {exc}") from exc
+            raise ProviderError(f"DNSE {what} that bai: {exc}") from exc
+        return self._parse_response(status, body, what)
 
     @staticmethod
     def _parse_response(status: int | None, body: str | None, what: str) -> dict:
@@ -110,14 +181,19 @@ class DnseProvider(PriceProvider):
 
     # ------------------------------------------------------------------- goi API
     @retry(
-        retry=retry_if_exception_type(ProviderError),
+        # Loi ket noi khong thu lai: da cho du _CONNECT_TIMEOUT, thu tiep chi
+        # lam lenh cua nguoi dung treo them.
+        retry=retry_if_exception(
+            lambda e: isinstance(e, ProviderError) and not isinstance(e, DnseUnreachable)
+        ),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
     def _call_ohlc(self, symbol: str, start: date, end: date, resolution: str) -> dict:
-        try:
-            status, body = self.client.get_ohlc(
+        return self._get(
+            f"get_ohlc({symbol})",
+            lambda: self.client.get_ohlc(
                 _market_type_of(symbol),
                 query={
                     "symbol": symbol.upper(),
@@ -125,19 +201,16 @@ class DnseProvider(PriceProvider):
                     "from": _to_epoch(start, end_of_day=False),
                     "to": _to_epoch(end, end_of_day=True),
                 },
-            )
-        except Exception as exc:  # SDK nem nhieu loai loi khac nhau
-            raise ProviderError(f"DNSE get_ohlc that bai cho {symbol}: {exc}") from exc
-        return self._parse_response(status, body, f"get_ohlc({symbol})")
+            ),
+        )
 
     def _call_instruments_page(self, market_id: str, page: int) -> dict:
-        try:
-            status, body = self.client.get_instruments(
+        return self._get(
+            "get_instruments",
+            lambda: self.client.get_instruments(
                 market_id=market_id, limit=_INSTRUMENTS_PAGE_SIZE, page=page
-            )
-        except Exception as exc:
-            raise ProviderError(f"DNSE get_instruments that bai: {exc}") from exc
-        return self._parse_response(status, body, "get_instruments")
+            ),
+        )
 
     def probe_ohlc(self, symbol: str, days: int = 30) -> tuple[int | None, int, str | None]:
         """Goi thu GET /price/ohlc DUNG MOT LAN (khong thu lai) - cho
@@ -154,6 +227,12 @@ class DnseProvider(PriceProvider):
             )
             payload = self._parse_response(status, body, f"get_ohlc({symbol})")
         except Exception as exc:  # noqa: BLE001 - chan doan: bao loi, khong nem
+            if _is_connection_error(exc):
+                _mark_down(exc)
+                return None, 0, (
+                    f"không kết nối được máy chủ DNSE sau {_CONNECT_TIMEOUT:.0f}s "
+                    "(thường do DNSE chặn IP ngoài Việt Nam, vd Render ở Singapore)"
+                )
             return None, 0, f"{type(exc).__name__}: {exc}"
         return status, len(_normalise_ohlc(payload)), None
 
@@ -201,8 +280,10 @@ class DnseProvider(PriceProvider):
         su co du lieu. Von dieu le/so CP luu hanh/mo ta KHONG co trong
         endpoint nay - khong bia, de trong."""
         try:
-            status, body = self.client.get_instruments(symbol=symbol.upper())
-            payload = self._parse_response(status, body, f"get_instruments({symbol})")
+            payload = self._get(
+                f"get_instruments({symbol})",
+                lambda: self.client.get_instruments(symbol=symbol.upper()),
+            )
         except ProviderError as exc:
             log.warning("company_overview(%s) that bai: %s", symbol, exc)
             return {}

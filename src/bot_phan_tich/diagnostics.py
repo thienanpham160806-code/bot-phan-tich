@@ -199,7 +199,8 @@ def check_dnse(symbol: str = _PROBE_SYMBOL) -> Check:
 
     status, bars, error = DnseProvider().probe_ohlc(symbol)
     if error:
-        return Check("DNSE", FAIL, f"có khoá API nhưng gọi thử lỗi: {error}")
+        # Khong phai LOI: router tu chuyen sang Vietcap (nguon du phong).
+        return Check("DNSE", WARN, f"gọi thử lỗi, bot tự dùng Vietcap thay thế — {error}")
     return Check("DNSE", OK if bars else WARN, f"HTTP {status}, {bars} phiên {symbol}")
 
 
