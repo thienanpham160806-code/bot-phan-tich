@@ -127,7 +127,11 @@ def build_snapshot(
     config `snapshot.max_workers`) thi dung ThreadPoolExecutor, van chung
     mot tien trinh, khong nhan ban kho.
     """
-    symbols = symbols if symbols is not None else liquid_universe()
+    if symbols is None:
+        # Nap ca kho vao cache TRUOC: liquid_universe() va frames_by_symbol()
+        # ben duoi deu lay tu cache nay - file kho chi doc DUNG MOT LAN.
+        market_store.load_ohlcv()
+        symbols = liquid_universe()
     if not symbols:
         log.warning("build_snapshot: vu tru rong (chua backfill?), khong tinh gi")
         return pd.DataFrame()

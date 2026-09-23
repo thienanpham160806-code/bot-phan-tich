@@ -60,6 +60,94 @@ def test_build_snapshot_reads_store_once_and_skips_short_history(isolated_paths,
     assert snapshot_mod.snapshot_path().exists()
 
 
+def _count_store_reads(monkeypatch) -> list:
+    """Dem so lan file kho (ohlcv.parquet) bi doc - qua ca pyarrow (cach doc
+    moi) lan pd.read_parquet (cach doc cu)."""
+    import pyarrow.parquet as pq
+
+    reads = []
+    real_read_table, real_read_parquet = pq.read_table, pd.read_parquet
+
+    def is_store(path) -> bool:
+        return str(path) == str(market_store.ohlcv_path())
+
+    def spy_read_table(path, *args, **kwargs):
+        if is_store(path):
+            reads.append("pyarrow")
+        return real_read_table(path, *args, **kwargs)
+
+    def spy_read_parquet(path, *args, **kwargs):
+        if is_store(path):
+            reads.append("pandas")
+        return real_read_parquet(path, *args, **kwargs)
+
+    monkeypatch.setattr(pq, "read_table", spy_read_table)
+    monkeypatch.setattr(pd, "read_parquet", spy_read_parquet)
+    return reads
+
+
+def test_build_snapshot_reads_store_file_exactly_once_for_explicit_symbols(
+    isolated_paths, monkeypatch
+):
+    _seed_store({"AAA": 150, "BBB": 150, "CCC": 150})
+    reads = _count_store_reads(monkeypatch)
+
+    snapshot_mod.build_snapshot(["AAA", "BBB", "CCC"])
+
+    assert len(reads) == 1
+
+
+def test_build_snapshot_reads_store_file_exactly_once_for_whole_universe(
+    isolated_paths, monkeypatch
+):
+    """Duong dung that trong bot: khong truyen danh sach ma -> liquid_universe()
+    cung doc kho. Van phai chi DOC FILE MOT LAN (dung chung cache)."""
+    _seed_store({"AAA": 300, "BBB": 300, "CCC": 300})
+    market_store.save_symbols(
+        pd.DataFrame({"symbol": ["AAA", "BBB", "CCC"], "exchange": ["HOSE"] * 3})
+    )
+    reads = _count_store_reads(monkeypatch)
+
+    frame = snapshot_mod.build_snapshot()
+
+    assert set(frame["symbol"]) == {"AAA", "BBB", "CCC"}
+    assert len(reads) == 1
+
+
+_DECISION_COLUMNS = [
+    "action", "price_vs_kumo", "kumo_break_bars", "macd_cross", "macd_bars_since",
+    "macd_above_zero", "rsi_zone", "divergence_type", "tk_cross", "reasons",
+]
+_NUMERIC_COLUMNS = [
+    "close", "change_pct", "volume", "vol_ratio20", "total_score", "score_macd",
+    "score_rsi", "score_ichimoku", "kumo_thickness", "rsi", "rsi_upper", "rsi_lower",
+    "stop_loss", "target",
+]
+
+
+def test_build_snapshot_matches_legacy_per_symbol_computation(isolated_paths):
+    """Phan 1 chi doi CACH DOC du lieu (mot lan, category + float32, tuan tu),
+    KHONG doi logic tinh. Tham chieu = cach cu: moi ma tinh rieng tren
+    DataFrame float64 goc. Moi quyet dinh (khuyen nghi, vung, giao cat, ly do)
+    phai GIONG HET; so thuc chi duoc lech o muc lam tron float32 (~1e-7)."""
+    seeds = {"AAA": 0, "BBB": 1, "CCC": 2, "DDD": 3}
+    originals = {s: _random_walk(s, 300, seed=i) for s, i in seeds.items()}
+    market_store.save_ohlcv(pd.concat(originals.values(), ignore_index=True), merge=False)
+
+    new = snapshot_mod.build_snapshot(list(seeds)).set_index("symbol")
+    legacy = pd.DataFrame(
+        [snapshot_mod._evaluate_one(s, None, frame) for s, frame in originals.items()]
+    ).set_index("symbol")
+
+    assert list(new.index) == list(legacy.index)
+    for col in _DECISION_COLUMNS:
+        assert new[col].tolist() == legacy[col].tolist(), col
+    for col in _NUMERIC_COLUMNS:
+        pd.testing.assert_series_equal(
+            new[col].astype(float), legacy[col].astype(float), rtol=1e-5, check_names=False
+        )
+
+
 def test_build_snapshot_thread_pool_gives_same_rows(isolated_paths):
     _seed_store({"AAA": 150, "BBB": 150, "CCC": 150})
 

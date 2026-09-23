@@ -3,15 +3,32 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from bot_phan_tich.bot.formatters import macro_news_card
+from bot_phan_tich.config import Paths
+from bot_phan_tich.data import cache
 from bot_phan_tich.data.cache import (
     get_news_subscribers,
     get_recent_macro_news,
+    init_db,
     is_news_subscribed,
     save_macro_news_items,
     set_news_subscriber,
 )
 from bot_phan_tich.data.macro_news import classify_news, clean_html
+
+
+@pytest.fixture
+def isolated_db(tmp_path, monkeypatch):
+    """DB SQLite rieng cho test, da tao du bang bang init_db(). Truoc day test
+    ghi thang vao data/cache.sqlite3 THAT: loi "no such table:
+    macro_news_items" tren may co DB cu/chua tao, va de lai tin gia trong
+    bang ma /tintuc doc ra cho nguoi dung that."""
+    paths = Paths(data_dir=tmp_path, cache_db=tmp_path / "cache.sqlite3", model_dir=tmp_path)
+    monkeypatch.setattr(cache, "get_paths", lambda: paths)
+    init_db()
+    return paths
 
 
 def test_clean_html():
@@ -47,7 +64,7 @@ def test_classify_news():
     assert cat5 == "DOANH NGHIỆP & NGÀNH"
 
 
-def test_cache_news_dedup_and_subscribers():
+def test_cache_news_dedup_and_subscribers(isolated_db):
     import uuid
 
     uid1 = f"test-{uuid.uuid4()}"
