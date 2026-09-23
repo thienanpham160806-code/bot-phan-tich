@@ -227,17 +227,37 @@ Bot dùng cơ chế **long polling** (`dispatcher.start_polling()`) — không c
 
 ### 7.1. Chạy ngầm trên Windows (Không cần mở VS Code / Antigravity)
 
-Trong thư mục gốc dự án đã chuẩn bị sẵn các công cụ 1-click:
+Trong thư mục gốc dự án đã chuẩn bị sẵn các công cụ 1-click (đều gọi
+`scripts/windows/bot.ps1`):
 
-- **`chay_bot_an.bat`** *(Khuyên dùng)*: Click đúp vào file này, bot sẽ tự động khởi động chạy ngầm dưới nền hệ thống bằng `pythonw.exe` (không hiện bất kỳ cửa sổ dòng lệnh đen nào). **Bạn có thể tắt hoàn toàn VS Code / Antigravity / Terminal, bot vẫn tiếp tục hoạt động trên Telegram!**
-- **`tat_bot.bat`**: Click đúp để dừng toàn bộ tiến trình bot đang chạy ngầm khi muốn tắt hoặc cập nhật code.
-- **`chay_bot_hien_log.bat`**: Dùng khi bạn muốn mở cửa sổ console đen để vừa xem trực tiếp từng dòng log xử lý của bot vừa kiểm tra.
+- **`chay_bot_an.bat`** *(Khuyên dùng)*: chạy bot ngầm bằng `pythonw.exe`
+  (không có cửa sổ). Dùng `pythonw.exe` trong `.venv` của repo nếu có, không
+  thì `pythonw` trên PATH. Bot được tạo qua WMI nên **không thuộc cửa sổ nào**:
+  đóng terminal, VS Code hay Antigravity, bot vẫn chạy (đã kiểm chứng bằng
+  cách giết cả cây tiến trình của cửa sổ khởi chạy). Script chờ tới khi bot
+  kết nối Telegram rồi mới báo thành công; nếu bot thoát ngay (vd thiếu
+  `TELEGRAM_BOT_TOKEN`) thì in 15 dòng log cuối.
+- **`tat_bot.bat`**: dừng bot. Chỉ dừng đúng tiến trình bot (nhận theo dòng
+  lệnh), không đụng các chương trình `pythonw` khác.
+- **`kiem_tra_bot.bat`**: bot có đang chạy không, PID, RAM đang dùng.
+- **`chay_bot_hien_log.bat`**: chạy bot trong cửa sổ console để xem log trực
+  tiếp (đóng cửa sổ là bot dừng). Từ chối chạy nếu bot đang chạy ngầm — hai
+  tiến trình cùng một token sẽ bị Telegram báo lỗi xung đột.
+
+Log ghi vào **`logs/bot.log`**. Không cần đặt `PYTHONPATH` hay
+`pip install -e .` — các file trên chạy qua `scripts/run_bot.py`, tự thêm
+`src/` vào đường dẫn.
+
+**Cách kiểm tra bot còn sống:** chạy `kiem_tra_bot.bat`; hoặc gõ `/trangthai`
+trên Telegram (trả lời được là bot đang chạy); hoặc mở Task Manager → tab
+*Details* → tìm `pythonw.exe` (bấm chuột phải tiêu đề cột → *Select columns*
+→ *Command line* để thấy dòng lệnh chứa `run_bot.py`).
 
 > 💡 **Tự động chạy mỗi khi bật máy tính:**
-> 1. Nhấn tổ hợp phím `Windows + R` ➔ gõ `shell:startup` rồi bấm Enter (thư mục Startup của Windows sẽ mở ra).
-> 2. Nhấp chuột phải vào `chay_bot_an.bat` ➔ chọn *Show more options* ➔ *Create shortcut* (Tạo lối tắt).
-> 3. Kéo shortcut vừa tạo thả vào thư mục Startup.
-> ➔ Từ nay cứ mở máy tính lên là bot tự động chạy ngầm, không cần thao tác thủ công.
+> 1. Nhấn `Windows + R` ➔ gõ `shell:startup` ➔ Enter (thư mục Startup mở ra).
+> 2. Chuột phải vào `chay_bot_an.bat` ➔ *Show more options* ➔ *Create shortcut*.
+> 3. Kéo shortcut vào thư mục Startup, rồi chuột phải shortcut ➔ *Properties*
+>    ➔ thêm ` tudong` vào cuối ô *Target* (để cửa sổ tự đóng, không chờ bấm phím).
 
 ### 7.2. Chạy 24/7 vĩnh viễn trên Máy chủ Cloud / VPS Linux (Docker)
 

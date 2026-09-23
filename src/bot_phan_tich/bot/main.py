@@ -106,7 +106,7 @@ async def hourly_news_job(bot: Bot) -> None:
 
 
 async def run() -> None:
-    setup_logging()
+    setup_logging("logs/bot.log")
     init_db()
 
     secrets = get_secrets()

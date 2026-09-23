@@ -11,7 +11,11 @@ _FMT = "%(asctime)s | %(levelname)-7s | %(name)-28s | %(message)s"
 
 def setup_logging(log_file: str | Path | None = "logs/app.log") -> None:
     level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
-    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    handlers: list[logging.Handler] = []
+    # Chay bang pythonw.exe (chay ngam tren Windows) thi sys.stdout la None -
+    # khi do chi ghi ra file.
+    if sys.stdout is not None:
+        handlers.append(logging.StreamHandler(sys.stdout))
 
     if log_file:
         path = Path(log_file)
