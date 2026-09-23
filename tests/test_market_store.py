@@ -62,6 +62,23 @@ def test_save_ohlcv_merges_and_deduplicates(isolated_store):
     assert row["close"] == 10.9  # giu ban ghi MOI hon
 
 
+def test_save_ohlcv_merge_new_symbols_keeps_compact_dtypes(isolated_store):
+    """Gop ma MOI vao kho da co: category hai ben khac nhau phai duoc hop
+    nhat, neu khong pandas bung cot symbol ra object (ton RAM gap nhieu lan)."""
+    market_store.save_ohlcv(_frame([["fpt", "2024-01-01", 10, 11, 9, 10.5, 1000]]), merge=False)
+    market_store.load_ohlcv()  # nap vao cache - save_ohlcv doc lai tu cache nay
+
+    total = market_store.save_ohlcv(
+        _frame([["vnm", "2024-01-01", 50, 51, 49, 50.5, 500]]), merge=True
+    )
+
+    assert total == 2
+    loaded = market_store.load_ohlcv()
+    assert set(loaded["symbol"]) == {"FPT", "VNM"}
+    assert str(loaded["symbol"].dtype) == "category"
+    assert str(loaded["close"].dtype) == "float32"
+
+
 def test_frames_by_symbol_groups_correctly(isolated_store):
     frame = _frame(
         [

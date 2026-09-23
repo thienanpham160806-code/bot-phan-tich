@@ -167,15 +167,32 @@ def last_updated() -> datetime | None:
 def save_ohlcv(frame: pd.DataFrame, merge: bool = True) -> int:
     """Ghi OHLCV vao kho, gop voi du lieu cu (neu `merge`) va khu trung theo
     (symbol, time), giu ban ghi MOI hon khi trung. Tra ve tong so dong sau khi ghi.
+
+    Gop o dang TIET KIEM RAM (symbol category, gia float32): ban cu doc lai
+    ca kho bang pd.read_parquet (symbol object, float64) roi concat - do
+    thuc te ton them ~270 MB moi lan tren kho toan san, du lam may chu 512 MB
+    (Render goi Free) bi OOM o cac lo cuoi cua bootstrap() va o refresh()
+    hang ngay. Hai ben phai CUNG danh sach category thi concat moi giu duoc
+    kieu category (khac nhau -> pandas bung ra object).
     """
     path = ohlcv_path()
     frame = frame[OHLCV_COLUMNS].copy()
     frame["symbol"] = frame["symbol"].astype(str).str.upper()
     frame["time"] = pd.to_datetime(frame["time"])
+    frame[_NUMERIC_COLUMNS] = frame[_NUMERIC_COLUMNS].astype("float32")
 
     if merge and path.exists():
-        existing = pd.read_parquet(path)
-        frame = pd.concat([existing, frame], ignore_index=True)
+        existing = _read_ohlcv(path, None)
+        categories = existing["symbol"].cat.categories.union(pd.Index(frame["symbol"].unique()))
+        frame = pd.concat(
+            [
+                existing.assign(symbol=existing["symbol"].cat.set_categories(categories)),
+                frame.assign(symbol=pd.Categorical(frame["symbol"], categories=categories)),
+            ],
+            ignore_index=True,
+        )
+    else:
+        frame["symbol"] = frame["symbol"].astype("category")
 
     frame = frame.drop_duplicates(subset=["symbol", "time"], keep="last")
     frame = frame.sort_values(["symbol", "time"]).reset_index(drop=True)
