@@ -48,6 +48,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 import requests
@@ -354,6 +355,23 @@ def _request_json_public(
                 "goi %s loi (%s), thu lai sau %.0fs [%d/%d]", url, exc, wait, attempt, attempts
             )
             time.sleep(wait)
+
+
+def probe_endpoint(
+    method: str, path: str, payload: dict | None = None, timeout: float = 15
+) -> tuple[int | None, Any, str | None]:
+    """Goi thu endpoint cong khai DUNG MOT LAN (khong thu lai) - cho
+    scripts/diagnose.py: can thay dung ma HTTP (vd 403 khi bi chan IP) thay
+    vi bi che boi vong thu lai. Tra (ma HTTP, JSON hoac None, loi hoac None)."""
+    url = f"{_PUBLIC_BASE}{path}"
+    try:
+        resp = _public_session.request(method, url, json=payload, timeout=timeout)
+    except requests.RequestException as exc:
+        return None, None, f"{type(exc).__name__}: {exc}"
+    try:
+        return resp.status_code, resp.json(), None
+    except ValueError:
+        return resp.status_code, None, f"phan hoi khong phai JSON: {resp.text[:120]!r}"
 
 
 def _chunks(items: list, size: int):

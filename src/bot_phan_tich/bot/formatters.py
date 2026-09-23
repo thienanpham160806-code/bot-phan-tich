@@ -605,7 +605,7 @@ def _stamp(value: datetime | None) -> str:
 
 
 def status_card(status) -> str:
-    """The /trangthai - `status` la bot/handlers/status.py:SystemStatus."""
+    """The /trangthai - `status` la diagnostics.py:SystemStatus."""
     lines = ["<b>🛠 TÌNH TRẠNG DỮ LIỆU CỦA BOT</b>", ""]
 
     lines.append("<b>Kho giá</b>")
@@ -656,6 +656,11 @@ def status_card(status) -> str:
     lines.append("<b>RAM tiến trình</b>")
     lines.append(
         f"  Đang dùng {format_mb(status.ram_mb)} (đỉnh {format_mb(status.ram_peak_mb)})"
+    )
+    lines.append("")
+    lines.append(
+        "<i>Kiểm tra RAM/CPU thật của máy chủ và kết nối nguồn dữ liệu: "
+        "<code>/trangthai chandoan</code></i>"
     )
     return "\n".join(lines)
 

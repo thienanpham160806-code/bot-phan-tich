@@ -64,6 +64,7 @@ class Paths:
 _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "universe.max_symbols": ("UNIVERSE_MAX_SYMBOLS", int),
     "market_store.count_back_bootstrap": ("MARKET_COUNT_BACK", int),
+    "snapshot.max_workers": ("SNAPSHOT_MAX_WORKERS", int),
 }
 
 

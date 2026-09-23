@@ -261,53 +261,61 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-### 7.3. Triển khai trên Render.com (gói Free)
+### 7.3. Triển khai trên Render.com — giới hạn thực tế và lựa chọn
 
-Bot polling Telegram về bản chất hợp với loại **Background Worker** (không
-mở port, không bị quét port) — nhưng **gói Free của Render KHÔNG hỗ trợ
-Background Worker** (chỉ trả phí từ gói Starter trở lên mới tạo được loại
-này — lỗi gặp thực tế: *"service type is not available for this plan"*).
-Nên trên gói Free, `render.yaml` khai báo **`type: web`**, kèm một HTTP
-health-check dự phòng trong `bot/main.py` (bắt biến `PORT` Render tự cấp,
-mở một server trả `200 OK`) để bot qua được vòng quét port của Render.
+**Giới hạn của gói Free (đã gặp thực tế khi deploy):**
 
-**Deploy:** Render dashboard → **New +** → **Blueprint** (hoặc **Web
-Service** thủ công, chọn Docker runtime) → chọn repo này, nhánh `main` →
-điền `TELEGRAM_BOT_TOKEN` → Deploy.
+- **512 MB RAM, CPU chia sẻ.** Riêng việc nạp thư viện của bot (aiogram,
+  pandas, vnstock) đã chiếm khoảng 250–300 MB, chỉ còn khoảng 200 MB cho
+  dữ liệu. Toàn sàn vẫn chạy được nhưng sát giới hạn; vượt là container bị
+  tắt và khởi động lại.
+- **Không có ổ đĩa lưu bền.** Mọi thứ trong `data/` (kho giá, snapshot,
+  danh sách theo dõi, cài đặt cảnh báo của người dùng) **mất sạch mỗi lần
+  container khởi động lại** (deploy mới, lỗi, hoặc Render tự khởi động lại).
+  Mỗi lần như vậy bot phải nạp lại kho giá từ đầu: vài giây đầu chỉ có dữ
+  liệu tạm cho danh sách theo dõi, vài phút sau mới có đủ vũ trụ.
+- **Tự ngủ sau ~15 phút không có request HTTP.** Bot chỉ polling Telegram
+  ra ngoài, không ai gọi HTTP vào, nên nếu không có dịch vụ ping thì cả
+  tiến trình bị dừng (kể cả lịch quét 15:05).
+- **Không có Background Worker** (loại phù hợp đúng bản chất bot polling,
+  không bị quét port). Gói Free báo *"service type is not available for
+  this plan"*, nên phải chạy dưới dạng Web Service kèm health-check HTTP
+  giả trong `bot/main.py`.
 
-**Giới hạn quy mô cho vừa 512 MB RAM** (tuỳ chọn, đặt ở mục Environment
-của service, không cần sửa file trong repo):
+**Ba lựa chọn:**
 
-| Biến | Ý nghĩa | Gợi ý cho Render Free |
-|---|---|---|
-| `UNIVERSE_MAX_SYMBOLS` | Chỉ tính snapshot cho N mã thanh khoản nhất (0 = không giới hạn) | `400` |
-| `MARKET_COUNT_BACK` | Số phiên tải cho mỗi mã khi nạp kho lần đầu (mặc định 500) | để trống |
+| | Lựa chọn | Dữ liệu | Chi phí | Hợp khi |
+|---|---|---|---|---|
+| **(a)** | **Chạy trên máy cá nhân** (mục 7.1) | Đầy đủ toàn sàn, giữ được qua các lần tắt/mở | Miễn phí | **Demo, chấm bài** — nhanh nhất, ổn định nhất |
+| (b) | Render gói trả phí + **Persistent Disk** | Đầy đủ, không mất khi restart | Trả phí hàng tháng | Cần chạy 24/7 lâu dài |
+| (c) | Render Free + vũ trụ rút gọn 300 mã + UptimeRobot | Rút gọn, nạp lại mỗi lần restart | Miễn phí | Muốn bot online 24/7 mà không trả phí, chấp nhận hạn chế |
 
-Đo RAM trước khi deploy: `python scripts/bench_snapshot.py` (in thời gian
-và RAM đỉnh khi dựng snapshot).
+**Khuyến nghị: dùng (a) khi demo và chấm bài.** Chạy `chay_bot_an.bat` trên
+máy cá nhân sau khi đã chạy `scripts/backfill_data.py` và
+`scripts/build_snapshot.py` — có ngay dữ liệu toàn sàn, `/loc` trả lời tức
+thì. (c) chỉ là phương án dự phòng "cho bot luôn online", không nên dùng để
+trình diễn trước hội đồng vì có thể đúng lúc đó container vừa restart và
+đang nạp lại dữ liệu.
 
-**Vấn đề còn lại — BẮT BUỘC phải xử lý:** gói Free của Render tự "ngủ"
-(spin down) sau **~15 phút không có request HTTP nào gọi đến** service.
-Sẽ không có ai tự gọi HTTP vào bot cả (bot chỉ polling Telegram RA NGOÀI,
-không nhận request từ ai) — nên nếu không làm gì thêm, khoảng 15 phút sau
-khi deploy, **cả tiến trình bot sẽ bị dừng hẳn** (kể cả vòng polling
-Telegram, kể cả lịch quét 15h05/tin tức hàng giờ), và không tự chạy lại
-được cho tới khi có ai đó gọi lại URL hoặc redeploy thủ công.
+**Cách làm (b):** nâng service lên gói trả phí → đổi `render.yaml` sang
+`type: worker` (không cần health-check/UptimeRobot) → thêm Persistent Disk
+gắn vào `/app/data` (thư mục `DATA_DIR` mặc định trong Docker image) →
+deploy lại. Bỏ các biến giới hạn quy mô ở (c) để chạy toàn sàn.
 
-**Cách giữ bot luôn thức, miễn phí:** dùng một dịch vụ ping định kỳ bên
-ngoài gọi vào endpoint health-check mỗi 5–10 phút, ví dụ
-[UptimeRobot](https://uptimerobot.com) (miễn phí):
+**Cách làm (c):**
 
-1. Lấy URL public của service trên Render (dạng
-   `https://<ten-service>.onrender.com`), thêm `/healthz` vào cuối.
-2. UptimeRobot → **Add New Monitor** → Monitor Type: **HTTP(s)** → dán URL
-   trên → Monitoring Interval: **5 phút** → Save.
-3. Từ đó UptimeRobot tự gọi vào bot mỗi 5 phút, Render luôn thấy có
-   "traffic" nên không bao giờ spin down.
-
-Nếu sau này nâng cấp lên gói trả phí, chỉ cần đổi `render.yaml` sang
-`type: worker` và tạo lại service qua Blueprint — không cần cấu hình
-health-check/ping ngoài nữa.
+1. Render → **New +** → **Blueprint** → chọn repo này, nhánh `main` —
+   `render.yaml` đã đặt sẵn `UNIVERSE_MAX_SYMBOLS=300`, `MARKET_COUNT_BACK=400`,
+   `SNAPSHOT_MAX_WORKERS=1`. **Nếu service được tạo thủ công** (New + →
+   Web Service, không qua Blueprint) thì `render.yaml` **không tự áp dụng**:
+   phải tự thêm ba biến này trong tab **Environment** của service.
+2. Điền `TELEGRAM_BOT_TOKEN` → Deploy.
+3. UptimeRobot (miễn phí) → **Add New Monitor** → HTTP(s) →
+   `https://<ten-service>.onrender.com/healthz` → Interval **5 phút**.
+4. Kiểm tra trên Telegram: `/trangthai` (kho giá, snapshot, tiến độ nạp,
+   lỗi gần nhất, RAM) và `/trangthai chandoan` (RAM/CPU thật của container,
+   có gọi được Vietcap/DNSE không — gói Free không có Shell nên đây là cách
+   chẩn đoán duy nhất). Trên máy cá nhân chạy `python scripts/diagnose.py`.
 
 ### 7.4. Lịch chạy tự động của Bot
 
