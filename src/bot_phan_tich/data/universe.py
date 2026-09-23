@@ -36,7 +36,7 @@ def liquid_universe(as_of: date | None = None, use_watchlist: bool = False) -> l
     max_price = settings.get("universe.max_price", 300_000)
     min_days = settings.get("universe.min_listed_days", 250)
 
-    frame = market_store.load_ohlcv()
+    frame = market_store.load_ohlcv(columns=["symbol", "time", "close", "volume"])
     if frame.empty:
         log.warning(
             "market_store rong - chua chay scripts/backfill_data.py? "
@@ -56,7 +56,7 @@ def liquid_universe(as_of: date | None = None, use_watchlist: bool = False) -> l
         frame = frame[frame["symbol"].isin(wanted)]
 
     keep: list[str] = []
-    for symbol, group in frame.groupby("symbol"):
+    for symbol, group in frame.groupby("symbol", observed=True, sort=False):
         if len(group) < min_days:
             continue
         group = group.sort_values("time")

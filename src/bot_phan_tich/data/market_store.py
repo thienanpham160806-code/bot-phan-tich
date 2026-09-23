@@ -24,12 +24,14 @@ from ..logging_conf import get_logger
 log = get_logger(__name__)
 
 OHLCV_COLUMNS = ["symbol", "time", "open", "high", "low", "close", "volume"]
+_NUMERIC_COLUMNS = ["open", "high", "low", "close", "volume"]
 OHLCV_FILENAME = "ohlcv.parquet"
 SYMBOLS_FILENAME = "symbols.parquet"
 
 # Cache trong bo nho tien trinh: {duong_dan: (mtime_luc_doc, DataFrame)}. Tu
 # lam moi khi file tren dia doi mtime (backfill_data.py ghi de file), khong
-# can khoi dong lai tien trinh.
+# can khoi dong lai tien trinh. Kho OHLCV chi cache BAN DAY DU (moi cot) -
+# ban doc mot phan cot khong cache, tranh giu hai ban sao cung luc.
 _cache: dict[str, tuple[float, pd.DataFrame]] = {}
 
 
@@ -60,10 +62,67 @@ def _read_cached(path: Path, columns: list[str]) -> pd.DataFrame:
     return frame
 
 
-def load_ohlcv(symbols: list[str] | None = None, since: date | None = None) -> pd.DataFrame:
+def _read_parquet_compact(path: Path, columns: list[str] | None) -> pd.DataFrame:
+    """Doc parquet o dang tiet kiem RAM - can thiet de chay vua may chu 512 MB
+    (Render goi Free): symbol -> category, gia/khoi luong -> float32.
+
+    Ep kieu NGAY O TANG ARROW (truoc to_pandas), khong phai doc xong roi moi
+    astype: tranh tao ~1,1 trieu object chuoi Python cho cot symbol. Do thuc
+    te tren kho toan san (1,1 trieu dong): DataFrame 110,8 MB -> 33,4 MB, RAM
+    tien trinh sau khi doc 261 MB -> 156 MB (nho release_unused() tra vung
+    nho thua cua Arrow ve he dieu hanh). float32 du chinh xac cho gia (~7 chu
+    so co nghia) va chi bao ky thuat; khoi luong lam tron ~1e-7, khong dang ke.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    read_dictionary = ["symbol"] if columns is None or "symbol" in columns else None
+    table = pq.read_table(path, columns=columns, read_dictionary=read_dictionary)
+    schema = pa.schema(
+        [pa.field(f.name, pa.float32()) if f.name in _NUMERIC_COLUMNS else f for f in table.schema]
+    )
+    frame = table.cast(schema, safe=False).to_pandas()
+    del table
+    pa.default_memory_pool().release_unused()
+    return frame
+
+
+def _read_ohlcv(path: Path, columns: list[str] | None) -> pd.DataFrame:
+    mtime = path.stat().st_mtime
+    hit = _cache.get(str(path))
+    if hit is not None and hit[0] == mtime:
+        return hit[1] if columns is None else hit[1][columns]
+    if columns is not None:
+        return _read_parquet_compact(path, columns)
+    frame = _read_parquet_compact(path, None)
+    _cache[str(path)] = (mtime, frame)
+    return frame
+
+
+def load_ohlcv(
+    symbols: list[str] | None = None,
+    since: date | None = None,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
     """Doc OHLCV tu kho (toan san neu `symbols` la None). DataFrame RONG neu
-    chua backfill lan nao - goi noi khong duoc tu dong goi mang bu vao."""
-    frame = _read_cached(ohlcv_path(), OHLCV_COLUMNS)
+    chua backfill lan nao - goi noi khong duoc tu dong goi mang bu vao.
+
+    `columns`: chi doc cac cot nay tu parquet (`pd.read_parquet(columns=...)`)
+    - giam RAM tren may chu 512 MB khi chi can vai cot (vd data/universe.py
+    chi can symbol/time/close/volume). Du lieu tra ve LUON o dang tiet kiem
+    RAM (xem _read_parquet_compact()): symbol la category, gia/khoi luong la
+    float32.
+    """
+    path = ohlcv_path()
+    if not path.exists():
+        return pd.DataFrame(columns=columns or OHLCV_COLUMNS)
+
+    read_columns = None
+    if columns is not None:
+        extra = (["symbol"] if symbols else []) + (["time"] if since is not None else [])
+        read_columns = list(dict.fromkeys([*columns, *extra]))
+
+    frame = _read_ohlcv(path, read_columns)
     if frame.empty:
         return frame
     if symbols:
@@ -71,6 +130,8 @@ def load_ohlcv(symbols: list[str] | None = None, since: date | None = None) -> p
         frame = frame[frame["symbol"].isin(wanted)]
     if since is not None:
         frame = frame[frame["time"] >= pd.Timestamp(since)]
+    if columns is not None:
+        frame = frame[columns]
     return frame.reset_index(drop=True)
 
 
@@ -87,7 +148,9 @@ def frames_by_symbol(
     if frame.empty:
         return {}
     result: dict[str, pd.DataFrame] = {}
-    for symbol, group in frame.groupby("symbol"):
+    # observed=True: symbol la category (xem _read_parquet_compact) - khong co thi groupby
+    # sinh ra MOI category cua ca san, ke ca ma da bi loc bo (nhom rong).
+    for symbol, group in frame.groupby("symbol", observed=True, sort=False):
         result[str(symbol)] = group.sort_values("time").reset_index(drop=True)
     return result
 

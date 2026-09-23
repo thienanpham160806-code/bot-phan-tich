@@ -7,24 +7,33 @@ chi can TRA BANG mot snapshot da tinh san MOT LAN sau gio dong cua.
 build_snapshot() goi analysis.scoring.recommend() DUNG MOT LAN cho moi ma -
 recommend() da tu tinh macd_state/rsi_state/ichimoku_state/divergence/
 volume_ratio va tra kem theo trong Recommendation, KHONG tinh lai o day
-(xem analysis/scoring.py). Chay song song bang ProcessPoolExecutor vi day
-la cong viec nang CPU (tinh chi bao tren hang tram DataFrame).
+(xem analysis/scoring.py).
+
+Doc kho DUNG MOT LAN o tien trinh chinh (market_store.frames_by_symbol), roi
+duyet TUAN TU. Khong dung da tien trinh: ban cu dung ProcessPoolExecutor voi
+max(1, os.cpu_count() - 1) tien trinh con, MOI tien trinh tu doc lai TOAN BO
+kho (~111 MB) - tren container, os.cpu_count() tra so core may chu vat ly
+(khong phai han muc CPU duoc cap), nen de dang vuot 512 MB cua Render goi
+Free -> OOM kill -> mat dia tam -> nap lai -> lap vo tan. Do thuc te
+recommend() chi mat ~15 ms/ma, 700 ma ~ 11 giay tren MOT luong - da tien
+trinh khong dang voi chi phi RAM. Van cho phep ThreadPoolExecutor qua
+config `snapshot.max_workers` (mac dinh 1).
 """
 from __future__ import annotations
 
 import asyncio
-import os
 import time as time_module
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 
 import pandas as pd
 
-from ..config import get_paths
+from ..config import get_paths, get_settings
 from ..data import fundamentals_store, market_store
 from ..data.universe import liquid_universe
 from ..logging_conf import get_logger
+from ..sysinfo import format_mb, peak_rss_mb
 from .scoring import recommend
 
 log = get_logger(__name__)
@@ -32,6 +41,7 @@ log = get_logger(__name__)
 SNAPSHOT_FILENAME = "snapshot.parquet"
 _MIN_BARS = 60
 _MARKET_CLOSE_CUTOFF = dt_time(15, 10)  # trung voi bot.scan_cron mac dinh
+_PROGRESS_EVERY = 200
 
 
 def snapshot_path():
@@ -40,12 +50,11 @@ def snapshot_path():
     return d / SNAPSHOT_FILENAME
 
 
-def _evaluate_one(symbol: str, exchange: str | None) -> dict | None:
-    """Chay trong TIEN TRINH CON (ProcessPoolExecutor) - tu doc du lieu tu
-    market_store (khong truyen DataFrame lon qua ranh gioi tien trinh).
-    Tra None neu thieu du lieu hoac loi - khong lam hong ca lot tinh.
+def _evaluate_one(symbol: str, exchange: str | None, frame: pd.DataFrame) -> dict | None:
+    """Tinh mot dong snapshot tu DataFrame gia CUA RIENG ma nay (da doc san o
+    build_snapshot, khong tu doc lai kho). Tra None neu thieu du lieu hoac
+    loi - khong lam hong ca lot tinh.
     """
-    frame = market_store.load_ohlcv([symbol])
     if len(frame) < _MIN_BARS:
         return None
     try:
@@ -92,11 +101,27 @@ def _evaluate_one(symbol: str, exchange: str | None) -> dict | None:
     }
 
 
+def _safe_evaluate(task: tuple[str, str | None, pd.DataFrame | None]) -> dict | None:
+    symbol, exchange, frame = task
+    if frame is None:
+        return None
+    try:
+        return _evaluate_one(symbol, exchange, frame)
+    except Exception as exc:  # noqa: BLE001 - mot ma loi khong duoc lam hong ca lot
+        log.warning("build_snapshot: bo qua %s do loi: %s", symbol, exc)
+        return None
+
+
 def build_snapshot(
     symbols: list[str] | None = None, max_workers: int | None = None
 ) -> pd.DataFrame:
     """Tinh khuyen nghi cho toan bo `symbols` (mac dinh: liquid_universe()),
     ghi ra snapshot.parquet. Tra ve chinh DataFrame vua ghi.
+
+    Doc kho MOT LAN (frames_by_symbol), duyet tuan tu - RAM them toi da ~mot
+    ban sao kho gia (cac DataFrame theo tung ma). `max_workers` > 1 (hoac
+    config `snapshot.max_workers`) thi dung ThreadPoolExecutor, van chung
+    mot tien trinh, khong nhan ban kho.
     """
     symbols = symbols if symbols is not None else liquid_universe()
     if not symbols:
@@ -108,28 +133,29 @@ def build_snapshot(
     if not symbols_meta.empty and "exchange" in symbols_meta.columns:
         exchange_map = dict(zip(symbols_meta["symbol"], symbols_meta["exchange"], strict=False))
 
-    max_workers = max_workers or max(1, (os.cpu_count() or 2) - 1)
+    frames = market_store.frames_by_symbol(symbols)
+    tasks = [(s, exchange_map.get(s), frames.get(s)) for s in symbols]
+    workers = max_workers or int(get_settings().get("snapshot.max_workers", 1))
+
     started = time_module.time()
     rows: list[dict] = []
     failed = 0
-
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_evaluate_one, s, exchange_map.get(s)): s for s in symbols}
-        done = 0
-        for future in as_completed(futures):
-            symbol = futures[future]
-            done += 1
-            try:
-                row = future.result()
-            except Exception as exc:  # noqa: BLE001
-                log.warning("build_snapshot: loi tien trinh con cho %s: %s", symbol, exc)
-                row = None
+    executor = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
+    results = executor.map(_safe_evaluate, tasks) if executor else map(_safe_evaluate, tasks)
+    try:
+        for done, row in enumerate(results, start=1):
             if row is not None:
                 rows.append(row)
             else:
                 failed += 1
-            if done % 100 == 0 or done == len(symbols):
-                log.info("build_snapshot: %d/%d ma (%d bi bo qua)", done, len(symbols), failed)
+            if done % _PROGRESS_EVERY == 0 or done == len(tasks):
+                log.info(
+                    "build_snapshot: %d/%d ma (%d bi bo qua), RAM dinh %s",
+                    done, len(tasks), failed, format_mb(peak_rss_mb()),
+                )
+    finally:
+        if executor is not None:
+            executor.shutdown()
 
     frame = pd.DataFrame(rows)
     elapsed = time_module.time() - started

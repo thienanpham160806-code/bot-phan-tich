@@ -87,6 +87,49 @@ def test_cache_invalidates_when_file_changes(isolated_store):
     assert len(second_load) == 2  # khong bi "dinh" du lieu cu tu lan doc truoc
 
 
+def test_load_ohlcv_uses_memory_saving_dtypes(isolated_store):
+    """Kho phai doc ra o dang tiet kiem RAM (category + float32) - can cho
+    may chu 512 MB (Render goi Free)."""
+    market_store.save_ohlcv(_frame([["fpt", "2024-01-01", 10, 11, 9, 10.5, 1000]]), merge=False)
+    loaded = market_store.load_ohlcv()
+    assert str(loaded["symbol"].dtype) == "category"
+    for col in ("open", "high", "low", "close", "volume"):
+        assert str(loaded[col].dtype) == "float32"
+
+
+def test_load_ohlcv_columns_subset_with_symbol_filter(isolated_store):
+    market_store.save_ohlcv(
+        _frame(
+            [
+                ["fpt", "2024-01-01", 10, 11, 9, 10.5, 1000],
+                ["vnm", "2024-01-01", 50, 51, 49, 50.5, 500],
+            ]
+        ),
+        merge=False,
+    )
+    # Loc theo symbol du `columns` khong co "symbol" - ham tu doc them cot can loc.
+    loaded = market_store.load_ohlcv(["vnm"], columns=["close"])
+    assert list(loaded.columns) == ["close"]
+    assert loaded["close"].tolist() == [50.5]
+
+
+def test_frames_by_symbol_has_no_empty_groups_after_filter(isolated_store):
+    """symbol la category - groupby phai dung observed=True, neu khong se
+    sinh ra nhom RONG cho moi ma da bi loc bo."""
+    market_store.save_ohlcv(
+        _frame(
+            [
+                ["fpt", "2024-01-01", 10, 11, 9, 10.5, 1000],
+                ["vnm", "2024-01-01", 50, 51, 49, 50.5, 500],
+                ["hpg", "2024-01-01", 20, 21, 19, 20.5, 700],
+            ]
+        ),
+        merge=False,
+    )
+    grouped = market_store.frames_by_symbol(["fpt"])
+    assert list(grouped) == ["FPT"]
+
+
 def test_save_and_load_symbols(isolated_store):
     frame = pd.DataFrame({"symbol": ["FPT", "VNM"], "exchange": ["HOSE", "HOSE"]})
     market_store.save_symbols(frame)
