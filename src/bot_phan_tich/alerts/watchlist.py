@@ -25,21 +25,6 @@ def add(chat_id: int, symbol: str) -> None:
     log.info("chat %s theo doi %s", chat_id, symbol)
 
 
-def seed(chat_ids: list[int], symbols: list[str]) -> None:
-    """Them `symbols` vao danh sach theo doi cua tung chat trong `chat_ids`
-    (bo qua ma da co). Goi luc khoi dong voi AUTO_SUBSCRIBE_CHAT_IDS +
-    AUTO_WATCHLIST: Render Free xoa CSDL moi lan restart, mat het /sub."""
-    if not chat_ids or not symbols:
-        return
-    now = time.time()
-    with connect() as conn:
-        conn.executemany(
-            "INSERT OR IGNORE INTO subscriptions(chat_id, symbol, created_at) VALUES (?,?,?)",
-            [(chat_id, symbol.upper(), now) for chat_id in chat_ids for symbol in symbols],
-        )
-    log.info("tu them %d ma vao danh sach theo doi cua %d chat", len(symbols), len(chat_ids))
-
-
 def remove(chat_id: int, symbol: str) -> None:
     """Bo theo doi mot ma. Khong bao loi neu chua theo doi tu truoc."""
     symbol = symbol.upper()

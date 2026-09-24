@@ -5,7 +5,6 @@ from . import (
     finreport,
     lookup,
     news,
-    pulse,
     recommend,
     screener,
     signals,
@@ -16,7 +15,6 @@ from . import (
 ROUTERS = [
     common.router,
     news.router,
-    pulse.router,
     lookup.router,
     recommend.router,
     screener.router,

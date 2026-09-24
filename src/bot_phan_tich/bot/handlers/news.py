@@ -75,7 +75,10 @@ async def cmd_news(message: Message) -> None:
         await message.answer(
             "🔔 <b>Đã BẬT nhận bản tin tự động mỗi 1 giờ!</b>\n\n"
             "Bot sẽ tự động tổng hợp tin tức vĩ mô, văn bản quy phạm pháp luật, "
-            "nghị định và nghị quyết mới nhất gửi đến bạn định kỳ mỗi tiếng.",
+            "nghị định và nghị quyết mới nhất gửi đến bạn định kỳ mỗi tiếng.\n\n"
+            "<i>Trên Render gói Free, đăng ký mất khi bot khởi động lại. Để giữ cố "
+            f"định, thêm biến <code>AUTO_SUBSCRIBE_CHAT_IDS={chat_id}</code> (chat id "
+            "của bạn) trong tab Environment của Render.</i>",
             reply_markup=_build_news_keyboard(chat_id),
         )
         return

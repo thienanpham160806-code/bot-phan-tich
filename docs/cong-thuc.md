@@ -212,35 +212,3 @@ nhom, moi nhom toi da `screener.max_results` ma (mac dinh 15):
 MUA / TICH LUY:        action IN {MUA, TICH LUY},        sap xep GIAM DAN theo total_score
 BAN / GIAM TY TRONG:    action IN {BAN, GIAM TY TRONG},    sap xep TANG DAN theo total_score (te nhat truoc)
 ```
-
-## 10. Bien dong thi truong & tac dong len ma theo doi — `/biendong` (`analysis/market_pulse.py`)
-
-Chi THEM thong tin, khong dung toi chi bao/cham diem/bo loc o cac muc tren.
-
-```
-%VN-Index hom nay   = close_nen_hom_nay / close_phien_truoc - 1      (gap-chart, nen ngay dang chay)
-%ma hom nay         = gia_khop / gia_tham_chieu - 1                  (bang gia Vietcap getList)
-
-r_t                 = close_t / close_(t-1) - 1, BO cac phien |r_t| > 15%  (chia tach/quyen)
-beta                = cov(r_ma, r_VNINDEX) / var(r_VNINDEX)   tren <= 120 phien chung gan nhat,
-                      KHONG tinh neu < 40 phien (chi dung cac phien TRUOC hom nay)
-tuong quan          = corr(r_ma, r_VNINDEX) cung cua so
-
-phan thi truong     = beta x %VN-Index
-phan rieng          = %ma - phan thi truong
-```
-
-Nhan xet cho tung ma:
-
-| Dieu kien (theo thu tu) | Nhan |
-|---|---|
-| chua co beta | "chua du lich su de tinh beta" |
-| tuong quan < 0.3 | "it chiu anh huong cua thi truong (tuong quan thap)" |
-| phan rieng > +0.5% | "manh hon thi truong" |
-| phan rieng < -0.5% | "yeu hon thi truong" |
-| con lai | "di cung thi truong" |
-
-Do rong: dem ma tang/dung/giam (so voi gia tham chieu) tren vu tru thanh khoan
-(cac ma trong snapshot); ma chua khop lenh trong phien bi loai. Khoi ngoai
-= tong (gia tri mua - gia tri ban) cua khoi ngoai tren cung vu tru.
-

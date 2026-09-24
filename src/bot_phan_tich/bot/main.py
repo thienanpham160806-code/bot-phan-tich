@@ -16,23 +16,19 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, Message, TelegramObject
 
-from ..alerts import watchlist as watchlist_store
 from ..alerts.eod import run_eod_scan
-from ..analysis.market_pulse import build_market_pulse
 from ..analysis.snapshot import ensure_fresh_in_background, update_market_data
-from ..config import auto_subscribe_chat_ids, auto_watchlist, get_secrets
+from ..config import auto_subscribe_chat_ids, get_secrets
 from ..data.cache import (
     get_news_subscribers,
-    get_pulse_subscribers,
     init_db,
     save_macro_news_items,
     seed_subscribers,
 )
 from ..data.macro_news import fetch_all_macro_news, select_broadcast_items
 from ..logging_conf import get_logger, setup_logging
-from .formatters import error_card, macro_news_card, market_pulse_card
+from .formatters import error_card, macro_news_card
 from .handlers import ROUTERS
-from .handlers.pulse import watched_for_chat
 from .scheduler import build_scheduler
 
 log = get_logger(__name__)
@@ -115,39 +111,12 @@ async def hourly_news_job(bot: Bot) -> None:
         log.exception("hourly_news_job that bai")
 
 
-async def market_pulse_job(bot: Bot) -> None:
-    """Gui ban tin bien dong thi truong cho nguoi da bat /biendong on. Chup
-    thi truong MOT lan cho hop cua moi ma dang theo doi, roi loc theo tung
-    chat. Ngay nghi (khong co nen phien hom nay) thi khong gui."""
-    try:
-        subscribers = await asyncio.to_thread(get_pulse_subscribers)
-        if not subscribers:
-            return
-        watched = {chat_id: watched_for_chat(chat_id) for chat_id in subscribers}
-        all_symbols = sorted({s for symbols, _ in watched.values() for s in symbols})
-        pulse = await asyncio.to_thread(build_market_pulse, all_symbols)
-        if not pulse.live:
-            log.info("market_pulse_job: hom nay khong co phien giao dich, bo qua")
-            return
-        for chat_id, (symbols, using_default) in watched.items():
-            try:
-                await bot.send_message(
-                    chat_id, market_pulse_card(pulse, symbols, using_default=using_default)
-                )
-            except Exception as exc:
-                log.warning("Khong gui duoc ban tin bien dong cho chat %s: %s", chat_id, exc)
-        log.info("market_pulse_job: da gui cho %d chat", len(watched))
-    except Exception:
-        log.exception("market_pulse_job that bai")
-
-
 async def run() -> None:
     setup_logging("logs/bot.log")
     init_db()
     # Render Free xoa CSDL moi lan khoi dong lai: dang ky san ban tin cho
     # cac chat trong AUTO_SUBSCRIBE_CHAT_IDS (khong ghi de lua chon da co).
     seed_subscribers(auto_subscribe_chat_ids())
-    watchlist_store.seed(auto_subscribe_chat_ids(), auto_watchlist())
 
     secrets = get_secrets()
     if not secrets.telegram_token:
@@ -168,7 +137,6 @@ async def run() -> None:
     scheduler = build_scheduler(
         lambda: daily_scan_job(bot),
         lambda: hourly_news_job(bot),
-        lambda: market_pulse_job(bot),
     )
     scheduler.start()
 
@@ -187,7 +155,6 @@ async def run() -> None:
                 BotCommand(command="loc", description="Bộ lọc cổ phiếu toàn sàn (Breakout, Nền)"),
                 BotCommand(command="tinhieu", description="Tín hiệu MUA / BÁN phiên gần nhất"),
                 BotCommand(command="market", description="Trạng thái chỉ số thị trường VN-Index"),
-                BotCommand(command="biendong", description="Biến động thị trường & mã theo dõi"),
                 BotCommand(command="tintuc", description="Bản tin thị trường & nghị định/luật"),
                 BotCommand(command="sub", description="Thêm vào danh mục theo dõi (VD: /sub FPT)"),
                 BotCommand(command="watchlist", description="Xem danh sách cổ phiếu theo dõi"),

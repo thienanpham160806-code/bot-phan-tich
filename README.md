@@ -138,7 +138,6 @@ Giao diện bot được thiết kế theo 3 nhóm nhu cầu cốt lõi, hỗ tr
 | `/loc [đk]` | `/screen` | Bộ lọc cổ phiếu toàn sàn — 3 bộ lọc dựng sẵn (Đột phá, Tích luỹ, Cảnh báo), hoặc gõ điều kiện tuỳ biến (VD: `/loc san=HOSE kn=MUA kl=1.2`) |
 | `/tinhieu` | `/signals` | Tổng hợp cổ phiếu phát sinh tín hiệu MUA hoặc BÁN ở phiên gần nhất |
 | `/market` | | Chỉ số thị trường VN-Index (điểm số, biến động tăng/giảm, biên độ ngày, thanh khoản) |
-| `/biendong` | `/pulse` | Biến động thị trường trong phiên (VN-Index, VN30, độ rộng, khối ngoại, mã tăng/giảm mạnh) và tác động lên từng mã bạn theo dõi: tách thành phần "thị trường kéo" (beta × % VN-Index) và phần biến động riêng. `/biendong on` bật gửi tự động 11:35 và 14:50 các ngày giao dịch, `/biendong off` để tắt |
 | `/tintuc` | `/news` | Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất. Hỗ trợ `/tintuc on` (bật nhận tin tự động mỗi 1 giờ) và `/tintuc off` |
 
 ### ⭐ Nhóm 3: Quản lý danh mục & Cảnh báo cá nhân
@@ -335,20 +334,12 @@ Hệ thống được điều phối tự động bởi `APScheduler`:
    - Tự động quét RSS từ CafeF & VnExpress, phân loại thông minh (Chính sách, Nghị định, Vĩ mô, TTCK).
    - Tự động phát sóng (broadcast) bản tin tổng hợp tới tất cả người dùng bật chế độ nhận tin (`/tintuc on`).
    - Chỉ gửi tin đăng trong 2 giờ gần nhất; nguồn "CafeF Vĩ mô" lẫn tin xã hội nên chỉ giữ tin khớp từ khoá chính sách/vĩ mô.
-3. **Bản tin biến động thị trường (`bot.market_pulse_crons`, mặc định `11:35` và `14:50` thứ 2 – thứ 6):**
-   - Gửi `/biendong` cho người đã bật `/biendong on`. Ngày nghỉ lễ (chưa có nến phiên hôm nay) tự bỏ qua.
-   - Người chưa `/sub` mã nào nhận tác động lên danh sách mặc định trong `config/universe.yaml`.
-
 > ⚠️ **Render gói Free mất đăng ký sau mỗi lần khởi động lại.** Người đăng ký
-> (`/tintuc on`, `/biendong on`) và danh mục `/sub` nằm trong SQLite ở `data/`,
-> mà gói Free xoá sạch thư mục này mỗi lần deploy/restart. Cách giữ cố định
-> không cần dịch vụ ngoài: đặt biến **`AUTO_SUBSCRIBE_CHAT_IDS`** (các chat id,
-> cách nhau dấu phẩy; `/biendong on` in ra chat id của bạn) trong tab
-> Environment — mỗi lần khởi động bot tự đăng ký lại cả hai bản tin cho các
-> chat này. Danh mục `/sub` cũng mất — đặt thêm **`AUTO_WATCHLIST`** (vd
-> `FPT,HPG,SSI`) để mỗi lần khởi động bot tự thêm lại các mã này vào danh mục
-> của những chat trên (thiếu biến này, `/biendong` dùng danh sách mặc định
-> trong `config/universe.yaml`).
+> `/tintuc on` và danh mục `/sub` nằm trong SQLite ở `data/`, mà gói Free xoá
+> sạch thư mục này mỗi lần deploy/restart. Giữ đăng ký bản tin cố định không
+> cần dịch vụ ngoài: đặt biến **`AUTO_SUBSCRIBE_CHAT_IDS`** (các chat id, cách
+> nhau dấu phẩy; `/tintuc on` in ra chat id của bạn) trong tab Environment —
+> mỗi lần khởi động bot tự bật lại bản tin cho các chat này.
 
 ---
 

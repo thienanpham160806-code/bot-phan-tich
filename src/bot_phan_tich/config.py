@@ -128,9 +128,8 @@ def now_local() -> datetime:
     return datetime.now(bot_timezone())
 
 
-@lru_cache(maxsize=1)
 def auto_subscribe_chat_ids() -> list[int]:
-    """Chat duoc tu dang ky ban tin moi lan bot khoi dong (bien
+    """Chat duoc tu dang ky ban tin tin tuc moi lan bot khoi dong (bien
     AUTO_SUBSCRIBE_CHAT_IDS, cach nhau dau phay; chap nhan id am cua nhom)."""
     ids: list[int] = []
     for part in os.getenv("AUTO_SUBSCRIBE_CHAT_IDS", "").split(","):
@@ -140,15 +139,7 @@ def auto_subscribe_chat_ids() -> list[int]:
     return ids
 
 
-def auto_watchlist() -> list[str]:
-    """Ma tu them vao danh sach theo doi cua cac chat trong
-    AUTO_SUBSCRIBE_CHAT_IDS moi lan bot khoi dong (bien AUTO_WATCHLIST, cach
-    nhau dau phay/khoang trang) - giu /sub qua cac lan Render Free restart."""
-    raw = os.getenv("AUTO_WATCHLIST", "").replace(",", " ").split()
-    symbols = [s.strip().upper() for s in raw]
-    return list(dict.fromkeys(s for s in symbols if s.isalnum() and 3 <= len(s) <= 10))
-
-
+@lru_cache(maxsize=1)
 def get_universe_config() -> dict[str, Any]:
     with open(CONFIG_DIR / "universe.yaml", encoding="utf-8") as fh:
         return yaml.safe_load(fh)

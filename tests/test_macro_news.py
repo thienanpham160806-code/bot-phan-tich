@@ -172,3 +172,16 @@ def test_select_broadcast_items_only_recent_newest_first():
         {"guid": "broken", "published_at": "khong-phai-ngay"},
     ]
     assert [it["guid"] for it in select_broadcast_items(items, now=now)] == ["b", "a"]
+
+
+def test_seed_subscribers_keeps_explicit_opt_out(isolated_db):
+    set_news_subscriber(2, False)
+    cache.seed_subscribers([1, 2, -1001])
+    assert sorted(get_news_subscribers()) == [-1001, 1]
+
+
+def test_auto_subscribe_chat_ids_parsing(monkeypatch):
+    from bot_phan_tich.config import auto_subscribe_chat_ids
+
+    monkeypatch.setenv("AUTO_SUBSCRIBE_CHAT_IDS", " 123, -100456 ,abc,, 7")
+    assert auto_subscribe_chat_ids() == [123, -100456, 7]
