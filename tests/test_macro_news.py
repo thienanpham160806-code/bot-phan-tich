@@ -140,3 +140,35 @@ def test_macro_news_card():
     assert "VNINDEX tăng mạnh 17 điểm" in card
     assert "href=\"https://cafef.vn/tin1\"" in card
     assert "/tintuc on" in card
+
+
+def test_classify_ignores_non_legal_uses_of_luat():
+    assert classify_news("Cán bộ bị kỷ luật vì vi phạm", "") == "DOANH NGHIỆP & NGÀNH"
+    assert classify_news("Luật sư tư vấn thừa kế", "") == "DOANH NGHIỆP & NGÀNH"
+    assert classify_news("Quốc hội thông qua Luật Chứng khoán sửa đổi", "") == (
+        "CHÍNH SÁCH - PHÁP LUẬT"
+    )
+    assert classify_news("Tôi quyết định nghỉ việc", "") == "DOANH NGHIỆP & NGÀNH"
+    assert classify_news("Quyết định 123/QĐ-TTg về đầu tư công", "") == "CHÍNH SÁCH - PHÁP LUẬT"
+
+
+def test_market_relevance_filter():
+    from bot_phan_tich.data.macro_news import is_market_relevant
+
+    assert not is_market_relevant("Cầu Nhật Tân xuất hiện loạt biển báo mới", "")
+    assert is_market_relevant("Lãi suất huy động giảm", "")
+
+
+def test_select_broadcast_items_only_recent_newest_first():
+    from datetime import timedelta
+
+    from bot_phan_tich.data.macro_news import select_broadcast_items
+
+    now = datetime(2026, 9, 24, 7, 0, tzinfo=timezone.utc)
+    items = [
+        {"guid": "old", "published_at": (now - timedelta(hours=20)).isoformat()},
+        {"guid": "a", "published_at": (now - timedelta(minutes=90)).isoformat()},
+        {"guid": "b", "published_at": (now - timedelta(minutes=10)).isoformat()},
+        {"guid": "broken", "published_at": "khong-phai-ngay"},
+    ]
+    assert [it["guid"] for it in select_broadcast_items(items, now=now)] == ["b", "a"]
