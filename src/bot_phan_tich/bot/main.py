@@ -14,7 +14,7 @@ from typing import Any
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand, Message, TelegramObject
+from aiogram.types import BotCommand, CallbackQuery, Message, TelegramObject
 
 from ..alerts.eod import run_eod_scan
 from ..analysis.snapshot import ensure_fresh_in_background, update_market_data
@@ -53,6 +53,37 @@ class ErrorGuard(BaseMiddleware):
                 except Exception:
                     pass
             return None
+
+
+class AutoSubscribeNews(BaseMiddleware):
+    """Chat nao nhan tin cho bot (bat ky lenh nao) duoc TU BAT ban tin tin tuc,
+    tru khi da tung /tintuc off. Render Free xoa CSDL moi lan khoi dong lai,
+    lam mat danh sach /tintuc on - nho middleware nay, dang ky tu phuc hoi
+    ngay lan dau nguoi dung nhan tin sau khi restart, khong can bien moi
+    truong. `_seen`: moi chat chi ghi CSDL mot lan cho moi lan bot chay."""
+
+    def __init__(self) -> None:
+        self._seen: set[int] = set()
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        chat = None
+        if isinstance(event, Message):
+            chat = event.chat
+        elif isinstance(event, CallbackQuery) and event.message is not None:
+            chat = event.message.chat
+        if chat is not None and chat.id not in self._seen:
+            self._seen.add(chat.id)
+            try:
+                # INSERT OR IGNORE: khong ghi de lua chon /tintuc off da co.
+                await asyncio.to_thread(seed_subscribers, [chat.id])
+            except Exception as exc:  # noqa: BLE001 - khong duoc chan lenh cua nguoi dung
+                log.warning("Khong tu dang ky tin tuc cho chat %s: %s", chat.id, exc)
+        return await handler(event, data)
 
 
 async def daily_scan_job(bot: Bot) -> None:
@@ -131,6 +162,9 @@ async def run() -> None:
     dispatcher = Dispatcher()
     dispatcher.message.middleware(ErrorGuard())
     dispatcher.callback_query.middleware(ErrorGuard())
+    auto_subscribe = AutoSubscribeNews()
+    dispatcher.message.outer_middleware(auto_subscribe)
+    dispatcher.callback_query.outer_middleware(auto_subscribe)
     for router in ROUTERS:
         dispatcher.include_router(router)
 

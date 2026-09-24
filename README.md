@@ -138,7 +138,7 @@ Giao diện bot được thiết kế theo 3 nhóm nhu cầu cốt lõi, hỗ tr
 | `/loc [đk]` | `/screen` | Bộ lọc cổ phiếu toàn sàn — 3 bộ lọc dựng sẵn (Đột phá, Tích luỹ, Cảnh báo), hoặc gõ điều kiện tuỳ biến (VD: `/loc san=HOSE kn=MUA kl=1.2`) |
 | `/tinhieu` | `/signals` | Tổng hợp cổ phiếu phát sinh tín hiệu MUA hoặc BÁN ở phiên gần nhất |
 | `/market` | | Chỉ số thị trường VN-Index (điểm số, biến động tăng/giảm, biên độ ngày, thanh khoản) |
-| `/tintuc` | `/news` | Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất. Hỗ trợ `/tintuc on` (bật nhận tin tự động mỗi 1 giờ) và `/tintuc off` |
+| `/tintuc` | `/news` | Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất. Tin tự động mỗi 1 giờ được **bật sẵn** cho ai nhắn bot; `/tintuc off` để tắt, `/tintuc on` để bật lại |
 
 ### ⭐ Nhóm 3: Quản lý danh mục & Cảnh báo cá nhân
 | Lệnh ngắn | Bí danh | Chức năng |
@@ -334,12 +334,12 @@ Hệ thống được điều phối tự động bởi `APScheduler`:
    - Tự động quét RSS từ CafeF & VnExpress, phân loại thông minh (Chính sách, Nghị định, Vĩ mô, TTCK).
    - Tự động phát sóng (broadcast) bản tin tổng hợp tới tất cả người dùng bật chế độ nhận tin (`/tintuc on`).
    - Chỉ gửi tin đăng trong 2 giờ gần nhất; nguồn "CafeF Vĩ mô" lẫn tin xã hội nên chỉ giữ tin khớp từ khoá chính sách/vĩ mô.
-> ⚠️ **Render gói Free mất đăng ký sau mỗi lần khởi động lại.** Người đăng ký
-> `/tintuc on` và danh mục `/sub` nằm trong SQLite ở `data/`, mà gói Free xoá
-> sạch thư mục này mỗi lần deploy/restart. Giữ đăng ký bản tin cố định không
-> cần dịch vụ ngoài: đặt biến **`AUTO_SUBSCRIBE_CHAT_IDS`** (các chat id, cách
-> nhau dấu phẩy; `/tintuc on` in ra chat id của bạn) trong tab Environment —
-> mỗi lần khởi động bot tự bật lại bản tin cho các chat này.
+> ⚠️ **Render gói Free xoá CSDL mỗi lần khởi động lại** (danh sách `/sub`,
+> lựa chọn `/tintuc off`...). Bản tin tin tức vẫn tự phục hồi: chat nào nhắn
+> bot bất kỳ lệnh nào đều được bật sẵn bản tin (middleware `AutoSubscribeNews`
+> trong `bot/main.py`), nên sau khi restart chỉ cần nhắn bot một lần. Muốn
+> nhận tin ngay cả khi chưa kịp nhắn lại: đặt biến **`AUTO_SUBSCRIBE_CHAT_IDS`**
+> (các chat id, cách nhau dấu phẩy) trong tab Environment.
 
 ---
 

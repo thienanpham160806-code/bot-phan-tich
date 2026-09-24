@@ -61,7 +61,8 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
 
 • <code>/tintuc</code> — <b>Bản tin vĩ mô, nghị định & luật thị trường</b>
   ➔ Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất.
-  ➔ Bật nhận tin tự động mỗi 1 giờ: <code>/tintuc on</code> (hoặc <code>/tintuc off</code>).
+  ➔ Tin tự động mỗi 1 giờ được BẬT SẴN.
+     Tắt: <code>/tintuc off</code> — bật lại: <code>/tintuc on</code>.
 
 ━━━━━━━━━━━━━━━━━━━━━
 ⭐ <b>3. NHU CẦU: QUẢN LÝ DANH MỤC & CẢNH BÁO</b>

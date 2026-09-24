@@ -185,3 +185,59 @@ def test_auto_subscribe_chat_ids_parsing(monkeypatch):
 
     monkeypatch.setenv("AUTO_SUBSCRIBE_CHAT_IDS", " 123, -100456 ,abc,, 7")
     assert auto_subscribe_chat_ids() == [123, -100456, 7]
+
+
+def _tg_message(chat_id: int, text: str = "/kn FPT"):
+    from aiogram.types import Chat, Message
+
+    return Message(
+        message_id=1, date=datetime.now(timezone.utc),
+        chat=Chat(id=chat_id, type="private"), text=text,
+    )
+
+
+def test_any_message_auto_subscribes_news_but_respects_opt_out(isolated_db):
+    import asyncio
+
+    from aiogram.types import CallbackQuery, User
+
+    from bot_phan_tich.bot.main import AutoSubscribeNews
+
+    calls = []
+
+    async def handler(event, data):
+        calls.append(event)
+        return "ok"
+
+    middleware = AutoSubscribeNews()
+    set_news_subscriber(2, False)  # da chu dong /tintuc off truoc do
+    callback = CallbackQuery(
+        id="q", from_user=User(id=3, is_bot=False, first_name="A"),
+        chat_instance="c", data="screen:breakout", message=_tg_message(3),
+    )
+
+    async def run():
+        for event in (_tg_message(1), _tg_message(1), _tg_message(2), callback):
+            assert await middleware(handler, event, {}) == "ok"
+
+    asyncio.run(run())
+    assert len(calls) == 4  # lenh cua nguoi dung van chay binh thuong
+    assert sorted(get_news_subscribers()) == [1, 3]
+    assert is_news_subscribed(2) is False
+
+
+def test_auto_subscribe_failure_does_not_block_command(monkeypatch):
+    import asyncio
+
+    from bot_phan_tich.bot import main
+
+    def broken(_ids):
+        raise RuntimeError("CSDL hong")
+
+    monkeypatch.setattr(main, "seed_subscribers", broken)
+
+    async def handler(event, data):
+        return "ok"
+
+    result = asyncio.run(main.AutoSubscribeNews()(handler, _tg_message(9), {}))
+    assert result == "ok"
