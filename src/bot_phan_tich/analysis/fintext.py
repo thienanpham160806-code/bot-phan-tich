@@ -322,33 +322,33 @@ def generate_commentary(symbol: str, audit: dict, risk_hits: list[Hit], trend: d
     Moi dong deu co gang dan so cu the kem nam; khi thieu du lieu thi noi ro
     "khong co du lieu" thay vi noi chung chung.
     """
-    lines: list[str] = [f"Bình luận tình hình tài chính — {symbol.upper()}", ""]
+    lines: list[str] = [f"<b>Bình luận tình hình tài chính — {symbol.upper()}</b>", ""]
 
-    lines.append("1. Ý kiến kiểm toán")
+    lines.append("<b>1. Ý kiến kiểm toán (Tính minh bạch)</b>")
     lines.append(_audit_paragraph(audit))
     lines.append("")
 
-    lines.append("2. Khả năng tăng trưởng")
+    lines.append("<b>2. Khả năng tăng trưởng (Doanh thu & Lợi nhuận)</b>")
     lines.append(_growth_paragraph(trend))
     lines.append("")
 
-    lines.append("3. Khả năng sinh lời")
+    lines.append("<b>3. Hiệu quả kinh doanh (Biên lợi nhuận & ROE/ROA)</b>")
     lines.append(_profitability_paragraph(trend))
     lines.append("")
 
-    lines.append("4. Cơ cấu tài chính")
+    lines.append("<b>4. Sức khỏe tài chính (Nợ vay & Thanh khoản)</b>")
     lines.append(_structure_paragraph(trend))
     lines.append("")
 
-    lines.append("5. Chất lượng lợi nhuận")
+    lines.append("<b>5. Chất lượng lợi nhuận (Tiền thực về túi)</b>")
     lines.append(_earnings_quality_paragraph(trend))
     lines.append("")
 
-    lines.append("6. Lưu ý từ Thuyết minh BCTC")
+    lines.append("<b>6. Lưu ý từ Thuyết minh BCTC</b>")
     lines.append(_risk_paragraph(risk_hits))
     lines.append("")
 
-    lines.append("Kết luận tổng thể")
+    lines.append("<b>Kết luận tổng thể</b>")
     lines.append(_conclusion_paragraph(audit, trend, risk_hits))
 
     return "\n".join(lines)
@@ -404,12 +404,12 @@ def _yoy_change(by_year: dict) -> tuple[str, str, float] | None:
 def _audit_paragraph(audit: dict) -> str:
     opinion, evidence = audit.get("opinion"), audit.get("evidence")
     if opinion == "ngoại trừ":
-        return f"- Ý kiến NGOẠI TRỪ: “{evidence}”."
+        return f"⚠️ **Rất đáng chú ý:** Kiểm toán viên đưa ra ý kiến NGOẠI TRỪ. Điều này cho thấy có vấn đề cần làm rõ: “{evidence}”."
     if opinion in ("từ chối", "trái ngược"):
-        return f"- Rủi ro rất cao: {opinion.upper()} đưa ra ý kiến: “{evidence}”."
+        return f"🚨 **Cảnh báo đỏ:** Kiểm toán viên {opinion.upper()} đưa ra ý kiến. Mức độ rủi ro rất cao: “{evidence}”."
     if opinion == "chấp nhận toàn phần":
-        return "- Ý kiến chấp nhận toàn phần."
-    return "- Không xác định được loại ý kiến kiểm toán từ văn bản đã cung cấp."
+        return "✅ Báo cáo minh bạch, kiểm toán viên đưa ra ý kiến chấp nhận toàn phần."
+    return "💡 Không xác định được loại ý kiến kiểm toán từ văn bản đã cung cấp."
 
 
 def _growth_paragraph(trend: dict) -> str:
@@ -427,7 +427,7 @@ def _growth_paragraph(trend: dict) -> str:
     rev_yoy = _yoy_change(rev_by_year)
     if rev_yoy:
         last_y, prev_y, pct = rev_yoy
-        huong = "tăng" if pct >= 0 else "giảm"
+        huong = "tăng 📈" if pct >= 0 else "giảm 📉"
         lines.append(f"Riêng năm {last_y}, doanh thu {huong} {abs(pct):.1%} so với năm {prev_y}.")
 
     ni_by_year = trend.get("net_income_by_year") or {}
@@ -440,13 +440,13 @@ def _growth_paragraph(trend: dict) -> str:
     ni_yoy = _yoy_change(ni_by_year)
     if ni_yoy:
         last_y, prev_y, pct = ni_yoy
-        huong = "tăng" if pct >= 0 else "giảm"
+        huong = "tăng 📈" if pct >= 0 else "giảm 📉"
         lines.append(
             f"Riêng năm {last_y}, lợi nhuận sau thuế {huong} {abs(pct):.1%} so với năm {prev_y}."
         )
 
     if not lines:
-        return "- Không có đủ dữ liệu doanh thu/lợi nhuận theo năm để phân tích tăng trưởng."
+        return "💡 Không có đủ dữ liệu doanh thu/lợi nhuận theo năm để phân tích tăng trưởng."
     return "\n".join(lines)
 
 
@@ -463,7 +463,7 @@ def _profitability_paragraph(trend: dict) -> str:
             lines.append(line)
 
     if not lines:
-        return "- Không có dữ liệu biên lợi nhuận/ROE/ROA theo năm."
+        return "💡 Không có dữ liệu biên lợi nhuận/ROE/ROA theo năm."
     return "\n".join(lines)
 
 
@@ -493,7 +493,7 @@ def _structure_paragraph(trend: dict) -> str:
         lines.append(line)
 
     if not lines:
-        return "- Không có dữ liệu tổng tài sản/vốn chủ sở hữu để đánh giá cơ cấu tài chính."
+        return "💡 Không có dữ liệu tổng tài sản/vốn chủ sở hữu để đánh giá cơ cấu tài chính."
     return "\n".join(lines)
 
 
@@ -501,7 +501,7 @@ def _earnings_quality_paragraph(trend: dict) -> str:
     by_year = trend.get("cfo_to_ni_by_year") or {}
     avg = trend.get("cfo_to_ni_avg")
     if avg is None:
-        return "- Không có dữ liệu dòng tiền hoạt động để đánh giá chất lượng lợi nhuận."
+        return "💡 Không có dữ liệu dòng tiền hoạt động để đánh giá chất lượng lợi nhuận."
 
     lines: list[str] = []
     label = "Tỷ lệ Dòng tiền hoạt động / Lợi nhuận sau thuế"
@@ -516,17 +516,18 @@ def _earnings_quality_paragraph(trend: dict) -> str:
     ]
     if low_years:
         lines.append(
-            f"- Lưu ý: Các năm {', '.join(str(y) for y in low_years)} tỷ lệ này dưới mức "
-            f"{_EARNINGS_QUALITY_THRESHOLD} lần — chất lượng lợi nhuận thấp do thiếu tiền mặt."
+            f"⚠️ **Lưu ý:** Các năm {', '.join(str(y) for y in low_years)} tỷ lệ này dưới mức an toàn "
+            f"({_EARNINGS_QUALITY_THRESHOLD} lần) — dấu hiệu cho thấy công ty ghi nhận lợi nhuận trên sổ sách "
+            "nhưng chưa thu được tiền mặt tương xứng (có thể bị đọng ở khoản phải thu)."
         )
     else:
-        lines.append("- Dòng tiền hoạt động ổn định, chất lượng lợi nhuận tốt.")
+        lines.append("✅ Dòng tiền hoạt động theo sát lợi nhuận, cho thấy chất lượng lợi nhuận tốt (kinh doanh ra tiền thật).")
     return "\n".join(lines)
 
 
 def _risk_paragraph(risk_hits: list[Hit]) -> str:
     if not risk_hits:
-        return "- Không phát hiện từ khoá rủi ro đáng kể nào trong văn bản thuyết minh."
+        return "✅ Không phát hiện từ khoá rủi ro đáng kể nào trong văn bản thuyết minh."
     groups: dict[str, list[Hit]] = {}
     for hit in risk_hits:
         groups.setdefault(hit.group, []).append(hit)
@@ -534,7 +535,7 @@ def _risk_paragraph(risk_hits: list[Hit]) -> str:
 
     lines = []
     for group_key, hits in ranked:
-        lines.append(f"- {group_key} ({len(hits)} lần nhắc tới):")
+        lines.append(f"<b>{group_key}</b> ({len(hits)} lần nhắc tới):")
         # Toi da 3 vi du moi nhom, tranh nhan xet qua dai khi van ban co rat nhieu trung lap.
         seen_sentences: set[str] = set()
         shown = 0
@@ -560,10 +561,10 @@ def _conclusion_paragraph(audit: dict, trend: dict, risk_hits: list[Hit]) -> str
         concerns.append("Có dấu hiệu rủi ro về khả năng hoạt động liên tục của doanh nghiệp.")
 
     if concerns:
-        return "Cần chú ý các rủi ro sau:\n- " + "\n- ".join(concerns)
+        return "⚠️ **Nhà đầu tư cần đặc biệt lưu ý các rủi ro sau:**\n- " + "\n- ".join(concerns)
     if trend.get("revenue_cagr") is not None or trend.get("net_income_cagr") is not None:
         return (
-            "Nhìn chung: Doanh nghiệp không có dấu hiệu rủi ro lớn về tài chính "
-            "trong dữ liệu được cung cấp."
+            "✅ **Nhìn chung:** Trong phạm vi dữ liệu phân tích, nền tảng tài chính của doanh nghiệp tương đối ổn định, "
+            "chưa phát hiện dấu hiệu rủi ro lớn nào."
         )
-    return "Không đủ dữ liệu để đưa ra kết luận tổng thể."
+    return "💡 Không đủ dữ liệu để đưa ra kết luận tổng thể đáng tin cậy."
