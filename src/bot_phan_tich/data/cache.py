@@ -67,6 +67,12 @@ CREATE TABLE IF NOT EXISTS news_subscribers (
     enabled     INTEGER NOT NULL DEFAULT 1,
     created_at  REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pulse_subscribers (
+    chat_id     INTEGER PRIMARY KEY,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  REAL NOT NULL
+);
 """
 
 
@@ -206,3 +212,44 @@ def get_news_subscribers() -> list[int]:
         ).fetchall()
         return [int(r["chat_id"]) for r in rows]
 
+
+# ------------------------------------------------------- ban tin bien dong thi truong
+def set_pulse_subscriber(chat_id: int, enabled: bool = True) -> None:
+    """Bat/tat nhan ban tin bien dong thi truong tu dong (/biendong on|off)."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO pulse_subscribers(chat_id, enabled, created_at) VALUES (?,?,?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET enabled=excluded.enabled",
+            (chat_id, 1 if enabled else 0, time.time()),
+        )
+
+
+def is_pulse_subscribed(chat_id: int) -> bool:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT enabled FROM pulse_subscribers WHERE chat_id = ?", (chat_id,)
+        ).fetchone()
+        return bool(row["enabled"]) if row else False
+
+
+def get_pulse_subscribers() -> list[int]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT chat_id FROM pulse_subscribers WHERE enabled = 1"
+        ).fetchall()
+        return [int(r["chat_id"]) for r in rows]
+
+
+def seed_subscribers(chat_ids: list[int]) -> None:
+    """Dang ky san ban tin (tin tuc + bien dong) cho `chat_ids` neu chat do
+    CHUA tung bat/tat - dung bien AUTO_SUBSCRIBE_CHAT_IDS de giu dang ky qua
+    cac lan Render Free khoi dong lai (moi lan la mot CSDL trang)."""
+    now = time.time()
+    with connect() as conn:
+        for chat_id in chat_ids:
+            for table in ("news_subscribers", "pulse_subscribers"):
+                conn.execute(
+                    f"INSERT OR IGNORE INTO {table}(chat_id, enabled, created_at) "
+                    "VALUES (?, 1, ?)",
+                    (chat_id, now),
+                )

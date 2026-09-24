@@ -129,6 +129,17 @@ def now_local() -> datetime:
 
 
 @lru_cache(maxsize=1)
+def auto_subscribe_chat_ids() -> list[int]:
+    """Chat duoc tu dang ky ban tin moi lan bot khoi dong (bien
+    AUTO_SUBSCRIBE_CHAT_IDS, cach nhau dau phay; chap nhan id am cua nhom)."""
+    ids: list[int] = []
+    for part in os.getenv("AUTO_SUBSCRIBE_CHAT_IDS", "").split(","):
+        part = part.strip()
+        if part.lstrip("-").isdigit():
+            ids.append(int(part))
+    return ids
+
+
 def get_universe_config() -> dict[str, Any]:
     with open(CONFIG_DIR / "universe.yaml", encoding="utf-8") as fh:
         return yaml.safe_load(fh)

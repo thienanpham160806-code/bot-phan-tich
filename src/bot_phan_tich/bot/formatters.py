@@ -709,7 +709,7 @@ def macro_news_card(items: list[dict], title_suffix: str = "1 Giờ Qua") -> str
 
             time_badge = f"<b>[{time_str}]</b> " if time_str else ""
             title = escape(it.get("title", ""))
-            link = it.get("link", "")
+            link = escape(it.get("link", ""), quote=True)
             source = escape(it.get("source", "Báo chí"))
             summary = escape(it.get("summary", ""))
 
@@ -731,6 +731,128 @@ def macro_news_card(items: list[dict], title_suffix: str = "1 Giờ Qua") -> str
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
+
+
+# --------------------------------------------------------------- /biendong
+_PULSE_MAX_SYMBOLS = 15  # giu tin nhan duoi gioi han 4.096 ky tu cua Telegram
+
+
+def _trend_icon(change: float) -> str:
+    return "🟢" if change > 0 else ("🔴" if change < 0 else "🟡")
+
+
+def _session_label(pulse) -> str:
+    if not pulse.live:
+        return f"phiên {pulse.index.session_date:%d/%m/%Y} (hôm nay chưa có giao dịch)"
+    minutes = pulse.as_of.hour * 60 + pulse.as_of.minute
+    if minutes < 11 * 60 + 30:
+        phase = "trong phiên sáng"
+    elif minutes < 13 * 60:
+        phase = "hết phiên sáng"
+    elif minutes < 14 * 60 + 45:
+        phase = "trong phiên chiều"
+    else:
+        phase = "cuối phiên"
+    return f"{pulse.as_of:%H:%M %d/%m/%Y} — {phase}"
+
+
+def _index_line(move) -> list[str]:
+    lines = [
+        f"{_trend_icon(move.change_pct)} <b>{escape(move.symbol)}:</b> <b>{move.close:,.2f}</b> "
+        f"({move.change_pts:+,.2f} điểm / {percent(move.change_pct)})"
+    ]
+    detail = []
+    if move.high and move.low:
+        detail.append(f"biên độ {move.low:,.2f} – {move.high:,.2f}")
+    if move.volume:
+        vol = f"KL {move.volume / 1e6:,.0f} triệu CP"
+        if move.avg_volume_20:
+            vol += f" (= {move.volume / move.avg_volume_20:.0%} TB 20 phiên)"
+        detail.append(vol)
+    if detail:
+        lines.append("   " + " · ".join(detail))
+    return lines
+
+
+def _net_foreign(value: float) -> str:
+    side = "mua ròng" if value >= 0 else "bán ròng"
+    return f"{side} {abs(value) / 1e9:,.1f} tỷ đồng"
+
+
+def market_pulse_card(pulse, symbols: list[str], using_default: bool = False) -> str:
+    """Ban tin bien dong thi truong + tac dong len `symbols` (xem
+    analysis/market_pulse.py). `using_default`: nguoi dung chua /sub ma nao,
+    dang dung danh sach mac dinh trong config/universe.yaml."""
+    lines = [
+        "📈 <b>BIẾN ĐỘNG THỊ TRƯỜNG</b>",
+        f"🕒 {_session_label(pulse)}",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ]
+    lines += _index_line(pulse.index)
+    if pulse.vn30 is not None:
+        lines += _index_line(pulse.vn30)
+
+    breadth = pulse.breadth
+    if breadth is not None:
+        lines += [
+            "",
+            f"<b>Độ rộng</b> ({breadth.total} mã thanh khoản): 🟢 {breadth.advancers} tăng · "
+            f"🟡 {breadth.unchanged} đứng · 🔴 {breadth.decliners} giảm",
+        ]
+        if breadth.foreign_net_value is not None:
+            lines.append(f"<b>Khối ngoại:</b> {_net_foreign(breadth.foreign_net_value)}")
+        if breadth.top_gainers:
+            lines.append("<b>Tăng mạnh:</b> " + ", ".join(
+                f"{escape(sym)} {percent(chg)}" for sym, chg in breadth.top_gainers))
+        if breadth.top_losers:
+            lines.append("<b>Giảm mạnh:</b> " + ", ".join(
+                f"{escape(sym)} {percent(chg)}" for sym, chg in breadth.top_losers))
+
+    lines += ["", "🎯 <b>TÁC ĐỘNG LÊN MÃ BẠN THEO DÕI</b>"]
+    if using_default:
+        lines.append(
+            "<i>Bạn chưa theo dõi mã nào — đang dùng danh sách mặc định. "
+            "Thêm mã: <code>/sub FPT</code></i>"
+        )
+    shown = [s for s in symbols if s in pulse.impacts]
+    ranked = sorted(shown, key=lambda s: abs(pulse.impacts[s].change_pct), reverse=True)
+    for sym in ranked[:_PULSE_MAX_SYMBOLS]:
+        imp = pulse.impacts[sym]
+        head = (
+            f"{_trend_icon(imp.change_pct)} <b>{escape(sym)}</b> {money(imp.price)} "
+            f"({percent(imp.change_pct)})"
+        )
+        if imp.beta is not None:
+            head += f" · beta {imp.beta:.2f}"
+        lines.append(head)
+        if imp.market_part is not None and imp.own_part is not None:
+            lines.append(
+                f"   Thị trường kéo {percent(imp.market_part)}, riêng mã "
+                f"{percent(imp.own_part)} → <b>{imp.verdict}</b>"
+            )
+        else:
+            lines.append(f"   <i>{imp.verdict}</i>")
+        if imp.foreign_net_value and abs(imp.foreign_net_value) >= 5e7:  # >= 0,05 tỷ
+            lines.append(f"   Khối ngoại {_net_foreign(imp.foreign_net_value)}")
+    if len(ranked) > _PULSE_MAX_SYMBOLS:
+        lines.append(f"<i>… và {len(ranked) - _PULSE_MAX_SYMBOLS} mã khác biến động ít hơn.</i>")
+    missing = [s for s in symbols if s not in pulse.impacts]
+    if missing:
+        lines.append(
+            "<i>Chưa có giá trong phiên: " + ", ".join(escape(s) for s in missing) + "</i>"
+        )
+
+    lines += [
+        "",
+        "<i>Beta: VN-Index đi 1% thì mã thường đi bao nhiêu % (tính trên 120 phiên "
+        "gần nhất). \"Thị trường kéo\" = beta × % VN-Index; phần còn lại là "
+        "biến động riêng của mã.</i>",
+        "💡 <i>Tự động gửi trong phiên: <code>/biendong on</code> (tắt: "
+        "<code>/biendong off</code>).</i>",
+        "",
+        DISCLAIMER,
+    ]
+    return "\n".join(lines)
 
 
 # ------------------------------------------------------------- xu ly lau > 2s

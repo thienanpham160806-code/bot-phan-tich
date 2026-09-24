@@ -24,6 +24,10 @@ services:
         sync: false
       - key: LOG_LEVEL
         value: INFO
+      # Chat id tu dang ky ban tin (tin tuc + /biendong) moi lan khoi dong -
+      # goi Free xoa CSDL moi lan restart. Dien trong tab Environment.
+      - key: AUTO_SUBSCRIBE_CHAT_IDS
+        sync: false
       # Cau hinh nhe cho goi Free (512 MB RAM, KHONG co dia luu ben vung: moi
       # lan restart bot phai nap lai kho). Vu tru rut gon 300 ma thanh khoan
       # nhat, 400 phien/ma (van du cho moi chi bao: RSI thich ung can 252).

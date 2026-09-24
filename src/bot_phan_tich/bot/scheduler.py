@@ -10,10 +10,13 @@ from ..logging_conf import get_logger
 log = get_logger(__name__)
 
 
-def build_scheduler(scan_callback, news_callback=None) -> AsyncIOScheduler:
+def build_scheduler(scan_callback, news_callback=None, pulse_callback=None) -> AsyncIOScheduler:
     """scan_callback: coroutine chay cuoi phien (EOD).
 
     news_callback: coroutine tong hop tin tuc vi mo, phap luat va phat song moi gio.
+
+    pulse_callback: coroutine gui ban tin bien dong thi truong trong phien
+    (moi moc trong bot.market_pulse_crons).
     """
     settings = get_settings()
     cron = settings.get("bot.scan_cron", "5 15 * * 1-5")
@@ -39,6 +42,18 @@ def build_scheduler(scan_callback, news_callback=None) -> AsyncIOScheduler:
             misfire_grace_time=1800,
         )
         log.info("Da dat lich tong hop tin tuc vi mo: '%s' (%s)", news_cron, timezone)
+
+    if pulse_callback is not None:
+        crons = settings.get("bot.market_pulse_crons", ["35 11 * * 1-5", "50 14 * * 1-5"])
+        for i, pulse_cron in enumerate(crons):
+            scheduler.add_job(
+                pulse_callback,
+                CronTrigger.from_crontab(pulse_cron, timezone=timezone),
+                id=f"market_pulse_{i}",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
+        log.info("Da dat lich ban tin bien dong thi truong: %s (%s)", crons, timezone)
 
     return scheduler
 

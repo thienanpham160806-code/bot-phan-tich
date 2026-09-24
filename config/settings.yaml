@@ -83,6 +83,9 @@ price_band:
 
 bot:
   scan_cron: "5 15 * * 1-5"    # 15h05 cac ngay lam viec
+  # Ban tin bien dong thi truong (/biendong on): het phien sang (11h30) va
+  # sau ATC (14h45). Ngay nghi le (khong co nen phien hom nay) tu bo qua.
+  market_pulse_crons: ["35 11 * * 1-5", "50 14 * * 1-5"]
   max_signals_per_message: 10
   timezone: Asia/Ho_Chi_Minh
 

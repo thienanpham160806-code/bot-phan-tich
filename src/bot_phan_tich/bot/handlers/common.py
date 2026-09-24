@@ -59,6 +59,12 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
 • <code>/market</code> — <b>Xu hướng thị trường chung (VN-Index)</b>
   ➔ Đánh giá sức mạnh thị trường để quyết định giải ngân hay giữ tiền.
 
+• <code>/biendong</code> — <b>Biến động thị trường & tác động lên mã theo dõi</b>
+  ➔ VN-Index, VN30, độ rộng, khối ngoại; mỗi mã bạn theo dõi được tách thành
+     phần "thị trường kéo" (beta × % VN-Index) và phần biến động riêng.
+  ➔ Tự động gửi trong phiên (11:35, 14:50): <code>/biendong on</code>
+     (tắt: <code>/biendong off</code>).
+
 • <code>/tintuc</code> — <b>Bản tin vĩ mô, nghị định & luật thị trường</b>
   ➔ Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất.
   ➔ Bật nhận tin tự động mỗi 1 giờ: <code>/tintuc on</code> (hoặc <code>/tintuc off</code>).
