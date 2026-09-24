@@ -811,8 +811,10 @@ def market_pulse_card(pulse, symbols: list[str], using_default: bool = False) ->
     lines += ["", "🎯 <b>TÁC ĐỘNG LÊN MÃ BẠN THEO DÕI</b>"]
     if using_default:
         lines.append(
-            "<i>Bạn chưa theo dõi mã nào — đang dùng danh sách mặc định. "
-            "Thêm mã: <code>/sub FPT</code></i>"
+            "<i>Bạn chưa theo dõi mã nào — đang dùng danh sách mặc định. Thêm mã: "
+            "<code>/sub FPT</code>. Đã /sub mà vẫn thấy dòng này: trên Render gói Free "
+            "danh sách mất mỗi lần bot khởi động lại — đặt biến AUTO_WATCHLIST "
+            "(xem README mục 7.4).</i>"
         )
     shown = [s for s in symbols if s in pulse.impacts]
     ranked = sorted(shown, key=lambda s: abs(pulse.impacts[s].change_pct), reverse=True)

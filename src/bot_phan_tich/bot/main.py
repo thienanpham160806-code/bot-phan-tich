@@ -16,10 +16,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, Message, TelegramObject
 
+from ..alerts import watchlist as watchlist_store
 from ..alerts.eod import run_eod_scan
 from ..analysis.market_pulse import build_market_pulse
 from ..analysis.snapshot import ensure_fresh_in_background, update_market_data
-from ..config import auto_subscribe_chat_ids, get_secrets
+from ..config import auto_subscribe_chat_ids, auto_watchlist, get_secrets
 from ..data.cache import (
     get_news_subscribers,
     get_pulse_subscribers,
@@ -146,6 +147,7 @@ async def run() -> None:
     # Render Free xoa CSDL moi lan khoi dong lai: dang ky san ban tin cho
     # cac chat trong AUTO_SUBSCRIBE_CHAT_IDS (khong ghi de lua chon da co).
     seed_subscribers(auto_subscribe_chat_ids())
+    watchlist_store.seed(auto_subscribe_chat_ids(), auto_watchlist())
 
     secrets = get_secrets()
     if not secrets.telegram_token:

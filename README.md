@@ -345,7 +345,10 @@ Hệ thống được điều phối tự động bởi `APScheduler`:
 > không cần dịch vụ ngoài: đặt biến **`AUTO_SUBSCRIBE_CHAT_IDS`** (các chat id,
 > cách nhau dấu phẩy; `/biendong on` in ra chat id của bạn) trong tab
 > Environment — mỗi lần khởi động bot tự đăng ký lại cả hai bản tin cho các
-> chat này. Danh mục `/sub` vẫn mất; khi đó `/biendong` dùng danh sách mặc định.
+> chat này. Danh mục `/sub` cũng mất — đặt thêm **`AUTO_WATCHLIST`** (vd
+> `FPT,HPG,SSI`) để mỗi lần khởi động bot tự thêm lại các mã này vào danh mục
+> của những chat trên (thiếu biến này, `/biendong` dùng danh sách mặc định
+> trong `config/universe.yaml`).
 
 ---
 

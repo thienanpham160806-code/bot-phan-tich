@@ -226,3 +226,19 @@ def test_pulse_job_sends_only_on_trading_days(isolated_db, fake_market, monkeypa
     holiday_bot = FakeBot()
     asyncio.run(main.market_pulse_job(holiday_bot))
     assert holiday_bot.sent == []
+
+
+def test_pulse_uses_chat_watchlist_and_auto_watchlist_seeding(isolated_db, monkeypatch):
+    from bot_phan_tich.alerts import watchlist as watchlist_store
+    from bot_phan_tich.bot.handlers.pulse import watched_for_chat
+    from bot_phan_tich.config import auto_watchlist
+
+    watchlist_store.add(7, "vnm")
+    assert watched_for_chat(7) == (["VNM"], False)
+    assert watched_for_chat(8)[1] is True  # chua /sub: danh sach mac dinh
+
+    monkeypatch.setenv("AUTO_WATCHLIST", "fpt, HPG ssi,FPT,x")
+    assert auto_watchlist() == ["FPT", "HPG", "SSI"]
+    watchlist_store.seed([7, 8], auto_watchlist())
+    assert watched_for_chat(7) == (["FPT", "HPG", "SSI", "VNM"], False)
+    assert watched_for_chat(8) == (["FPT", "HPG", "SSI"], False)

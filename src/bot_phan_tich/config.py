@@ -140,6 +140,15 @@ def auto_subscribe_chat_ids() -> list[int]:
     return ids
 
 
+def auto_watchlist() -> list[str]:
+    """Ma tu them vao danh sach theo doi cua cac chat trong
+    AUTO_SUBSCRIBE_CHAT_IDS moi lan bot khoi dong (bien AUTO_WATCHLIST, cach
+    nhau dau phay/khoang trang) - giu /sub qua cac lan Render Free restart."""
+    raw = os.getenv("AUTO_WATCHLIST", "").replace(",", " ").split()
+    symbols = [s.strip().upper() for s in raw]
+    return list(dict.fromkeys(s for s in symbols if s.isalnum() and 3 <= len(s) <= 10))
+
+
 def get_universe_config() -> dict[str, Any]:
     with open(CONFIG_DIR / "universe.yaml", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
