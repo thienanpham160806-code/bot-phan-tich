@@ -28,15 +28,44 @@ from ..logging_conf import get_logger
 log = get_logger(__name__)
 
 # ------------------------------------------------------------- trich xuat PDF
-def extract_text(pdf_path: str | Path) -> str:
-    """Trich van ban tu PDF BCTC bang pdfplumber, giu cau truc doan theo trang."""
-    import pdfplumber
+MAX_PDF_PAGES = 200  # BCTC hop nhat thuong 60-150 trang
+
+
+def extract_text(pdf_path: str | Path, max_pages: int = MAX_PDF_PAGES) -> str:
+    """Trich van ban tu PDF BCTC bang pypdfium2 (thu vien C cua PDFium), giu
+    cau truc doan theo trang.
+
+    Truoc day dung pdfplumber: do tren PDF 150 trang, pdfplumber ton ~1,9 GB
+    RAM (giu cache moi trang) va 24s; pypdfium2 ton ~4 MB va 0,5s, van ban
+    tieng Viet giong het - quan trong tren Render goi Free (512 MB, 0,1 CPU).
+    PDF la ban SCAN (anh) thi tra ve gan nhu rong - xem is_scanned_text().
+
+    pypdfium2 duoc cai KEM pdfplumber (requirements.txt), khong khai bao
+    rieng: tu 25/09/2026 goi vnstock bi PyPI "quarantine" (khong tai duoc),
+    Render chi build duoc nho cache buoc pip install - sua requirements.txt la
+    mat cache va build that bai."""
+    import pypdfium2 as pdfium
 
     pages_text: list[str] = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            pages_text.append(page.extract_text() or "")
-    return "\n\n".join(pages_text)
+    pdf = pdfium.PdfDocument(str(pdf_path))
+    try:
+        for index in range(min(len(pdf), max_pages)):
+            page = pdf[index]
+            textpage = page.get_textpage()
+            try:
+                pages_text.append(textpage.get_text_bounded() or "")
+            finally:
+                textpage.close()
+                page.close()
+    finally:
+        pdf.close()
+    text = "\n\n".join(pages_text).replace("\r\n", "\n")
+    return unicodedata.normalize("NFC", text)
+
+
+def is_scanned_text(text: str) -> bool:
+    """PDF gan nhu khong co lop chu (ban scan/chup) - khong khai thac duoc."""
+    return len(text.strip()) < 500
 
 
 # --------------------------------------------------------------- tach cac phan
@@ -190,7 +219,18 @@ _TREND_COLUMNS: dict[str, list[str]] = {
     # "equity": ten item_id thuc te THAY DOI theo nganh (vd cong ty thuong
     # thuong la "owners_equity_2"/"owners_equity_3", cong ty chung khoan la
     # "equity" don gian) - giu nhieu candidate.
-    "equity": ["equity", "owners_equity_2", "owners_equity_3", "owners_equity", "totalEquity"],
+    "equity": [
+        "equity", "owners_equity_2", "owners_equity_3", "owners_equity", "totalEquity",
+        "capital_and_reserves",  # ngan hang: "Von va cac quy" (= VCSH)
+    ],
+}
+# Ngan hang khong co "doanh thu"/"loi nhuan gop" - bao cao dung chi tieu rieng
+# (item_id da xac nhan tren BCTC nam cua CTG qua vnstock 4.0.8).
+_BANK_COLUMNS: dict[str, tuple[str, list[str]]] = {
+    "net_interest_income": ("income", ["net_interest_income"]),
+    "credit_provision": ("income", ["provision_for_credit_losses"]),
+    "customer_loans": ("balance", ["loans_advances_and_finance_leases_to_customers"]),
+    "customer_deposits": ("balance", ["deposits_from_customers"]),
 }
 # CFO cho cong ty chung khoan/ngan hang dung ten item_id rieng theo nganh
 # (vd VIX: "net_cash_flows_from_securities_trading_activities"), khong co
@@ -290,6 +330,16 @@ def trend_analysis(financials: dict[str, pd.DataFrame]) -> dict:
         equity = balance[equity_col].astype(float)
         result["equity_by_year"] = dict(zip(years, equity, strict=False))
         result["equity_cagr"] = _cagr(equity.iloc[0], equity.iloc[-1], len(equity) - 1)
+
+    statements = {"income": income, "balance": balance}
+    for key, (part, candidates) in _BANK_COLUMNS.items():
+        frame = statements[part]
+        col = _find_column(frame, candidates)
+        if col and len(frame) == len(years):
+            result[f"{key}_by_year"] = dict(zip(years, frame[col].astype(float), strict=False))
+    nii = list((result.get("net_interest_income_by_year") or {}).values())
+    if len(nii) >= 2:
+        result["net_interest_income_cagr"] = _cagr(nii[0], nii[-1], len(nii) - 1)
 
     cfo_col = _find_column(cashflow, _CFO_COLUMNS)
     if cfo_col and ni_col and not cashflow.empty:
@@ -445,6 +495,22 @@ def _growth_paragraph(trend: dict) -> str:
             f"Riêng năm {last_y}, lợi nhuận sau thuế {huong} {abs(pct):.1%} so với năm {prev_y}."
         )
 
+    nii_by_year = trend.get("net_interest_income_by_year") or {}
+    line = _series_line("Thu nhập lãi thuần (ngân hàng)", nii_by_year, _fmt_billion)
+    if line:
+        lines.append(line)
+    if trend.get("net_interest_income_cagr") is not None:
+        lines.append(
+            f"Thu nhập lãi thuần tăng trưởng kép bình quân "
+            f"{trend['net_interest_income_cagr']:+.1%}/năm ({span})."
+        )
+    line = _series_line(
+        "Chi phí dự phòng rủi ro tín dụng", trend.get("credit_provision_by_year") or {},
+        _fmt_billion,
+    )
+    if line:
+        lines.append(line)
+
     if not lines:
         return "Không có đủ dữ liệu doanh thu/lợi nhuận theo năm để phân tích tăng trưởng."
     return "\n".join(lines)
@@ -485,6 +551,19 @@ def _structure_paragraph(trend: dict) -> str:
 
     debt_col = trend.get("debt_to_equity_by_year") or {}
     line = _series_line("Tỷ lệ Nợ/Vốn chủ sở hữu", debt_col, _fmt_ratio_pct)
+    if line:
+        lines.append(line)
+    loans = trend.get("customer_loans_by_year") or {}
+    deposits = trend.get("customer_deposits_by_year") or {}
+    for label, series in (("Cho vay khách hàng", loans), ("Tiền gửi của khách hàng", deposits)):
+        line = _series_line(label, series, _fmt_billion)
+        if line:
+            lines.append(line)
+    ldr = {
+        y: loans[y] / deposits[y] for y in loans
+        if y in deposits and deposits[y] and not pd.isna(deposits[y])
+    }
+    line = _series_line("Cho vay / tiền gửi khách hàng", ldr, _fmt_frac_pct)
     if line:
         lines.append(line)
     current_col = trend.get("current_ratio_by_year") or {}

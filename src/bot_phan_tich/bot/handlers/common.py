@@ -39,7 +39,9 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
   <i>Ví dụ: <code>/info VNM</code></i>
 
 • <code>/fin &lt;mã&gt;</code> — <b>Báo cáo tài chính & Sức khỏe nợ vay</b>
-  ➔ Bóc tách cơ cấu nợ, dòng tiền và cảnh báo rủi ro thuyết minh (có thể đính kèm PDF).
+  ➔ Tăng trưởng, sinh lời, cơ cấu vốn, dòng tiền qua các năm.
+  ➔ Kèm PDF BCTC: gửi file với chú thích <code>/fin MÃ</code> (hoặc reply file
+     bằng <code>/fin MÃ</code>) để đọc thêm ý kiến kiểm toán, rủi ro thuyết minh.
   <i>Ví dụ: <code>/fin HPG</code></i>
 
 ━━━━━━━━━━━━━━━━━━━━━
@@ -87,8 +89,10 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
 
 
 def parse_symbol(message: Message) -> str | None:
-    """Lay tham so dau tien sau ten lenh (ma co phieu), vien hoa. None neu thieu."""
-    parts = (message.text or "").split()
+    """Lay tham so dau tien sau ten lenh (ma co phieu), vien hoa. None neu thieu.
+    Doc ca caption: gui file kem chu thich "/fin CTG" thi lenh nam o caption,
+    `text` rong (ban cu bo sot -> tra loi "Cu phap: ...")."""
+    parts = (message.text or message.caption or "").split()
     return parts[1].upper() if len(parts) > 1 else None
 
 

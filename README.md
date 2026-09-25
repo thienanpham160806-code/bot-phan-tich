@@ -161,7 +161,7 @@ Lệnh chia theo 3 nhóm:
 | `/kn MA` | `/khuyennghi`, `/rec` | Khuyến nghị MUA/TÍCH LUỸ/THEO DÕI/GIẢM TỶ TRỌNG/BÁN, kế hoạch giá (vùng vào, cắt lỗ, mục tiêu), R:R, tỷ trọng giải ngân gợi ý |
 | `/chart MA` | `/bieudo` | Biểu đồ nến kỹ thuật tích hợp mây Ichimoku, MACD, RSI |
 | `/info MA` | `/tracuu` | Hồ sơ niêm yết, P/E, P/B, ROE, vốn hoá và tin công bố thông tin gần đây |
-| `/fin MA` | `/bctc` | Bóc tách BCTC, cơ cấu nợ vay và rủi ro thuyết minh (gửi kèm PDF BCTC nếu có) |
+| `/fin MA` | `/bctc` | Nhận xét BCTC nhiều năm: tăng trưởng, sinh lời, cơ cấu vốn, dòng tiền (ngân hàng có thêm thu nhập lãi thuần, dự phòng, cho vay/huy động). Có PDF BCTC thì khai thác thêm ý kiến kiểm toán và rủi ro thuyết minh: gửi file kèm chú thích `/fin MA`, hoặc trả lời (reply) file bằng `/fin MA`. PDF bản scan không có chữ thì không đọc được |
 
 ### 🔍 Nhóm 2: Tìm cơ hội đầu tư & Thông tin toàn sàn
 | Lệnh ngắn | Bí danh | Chức năng |
