@@ -468,6 +468,15 @@ def _fetch_ohlcv_one(symbol: str, count_back: int, to_ts: int) -> pd.DataFrame |
     )
 
 
+def fetch_daily_bars(symbol: str, count_back: int = 30) -> pd.DataFrame:
+    """Nen ngay GAN NHAT cua mot ma/chi so (vd VNINDEX), KE CA nen dang chay
+    cua phien hom nay khi dang giao dich - gap-chart cap nhat trong phien, khac
+    kho gia (chi cap nhat 11:35/15:05) va cache cua router (12 gio). Rong neu
+    nguon khong tra ve."""
+    frame = _fetch_ohlcv_one(symbol.upper(), count_back, int(time.time()))
+    return frame if frame is not None else pd.DataFrame(columns=["symbol", *OHLCV_COLUMNS])
+
+
 def fetch_ohlcv_bulk(
     symbols: list[str], count_back: int, to_ts: int | None = None,
     max_workers: int = _DEFAULT_CONCURRENCY, delay: float = 0.3,

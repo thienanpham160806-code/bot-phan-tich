@@ -55,20 +55,25 @@ def market_card(
     high: float | None = None,
     low: float | None = None,
     volume: float | None = None,
+    live_at: datetime | None = None,
 ) -> str:
-    """The trang thai thi truong day du, truc quan cho chi so tham chieu (VNINDEX)."""
+    """The trang thai thi truong cho chi so tham chieu (VNINDEX). `live_at`:
+    phien dang dien ra - diem la diem hien tai luc do, chua phai dong cua."""
     icon = "🟢" if change_pct > 0 else ("🔴" if change_pct < 0 else "🟡")
     huong = "tăng" if change_pct > 0 else ("giảm" if change_pct < 0 else "đứng giá")
 
     pts_str = f"{change_pts:+.2f} điểm / " if change_pts is not None else ""
     lines = [
         f"📊 <b>CHỈ SỐ THỊ TRƯỜNG: {escape(symbol)}</b>",
-        f"📅 <b>Phiên giao dịch:</b> <b>{as_of:%d/%m/%Y}</b>",
+        (
+            f"📅 <b>Phiên giao dịch:</b> <b>{as_of:%d/%m/%Y}</b>"
+            + (f" (đang diễn ra, cập nhật {live_at:%H:%M})" if live_at else "")
+        ),
         "",
         "━━━━━━━━━━━━━━━━━━━━━",
         "📈 <b>ĐIỂM SỐ & BIẾN ĐỘNG</b>",
         (
-            f"• <b>Điểm đóng cửa:</b> <b>{price(close)}</b> "
+            f"• <b>{'Điểm hiện tại' if live_at else 'Điểm đóng cửa'}:</b> <b>{price(close)}</b> "
             f"({icon} {huong} {pts_str}{percent(change_pct)})"
         ),
     ]
@@ -493,7 +498,21 @@ def lookup_card(profile) -> str:
 
 
 # ----------------------------------------------------------------------- /loc
-def screener_results_card(results, note: str | None = None, limit: int = 15) -> str:
+def _session_line(session, as_of) -> str | None:
+    """Dong "du lieu phien nao" - de nguoi dung (va hoi dong) thay ngay ket
+    qua la cua phien hom nay hay phien truoc."""
+    if session is None:
+        return None
+    line = f"📅 Dữ liệu phiên {session:%d/%m/%Y}"
+    if as_of is not None:
+        line += f" (tính lúc {as_of:%H:%M %d/%m})"
+    return line
+
+
+def screener_results_card(
+    results, note: str | None = None, limit: int = 15, session=None, as_of=None
+) -> str:
+    session_line = _session_line(session, as_of)
     if not results:
         lines = [
             "🔍 <b>Không tìm thấy mã nào khớp điều kiện lọc hiện tại.</b>",
@@ -507,6 +526,8 @@ def screener_results_card(results, note: str | None = None, limit: int = 15) -> 
             "• Xem tín hiệu tổng quát toàn thị trường bằng lệnh <code>/tinhieu</code>.",
             "• Thử lệnh lọc: <code>/loc san=HOSE kn=MUA</code> hoặc <code>/loc may=tren</code>",
         ]
+        if session_line:
+            lines += ["", f"<i>{session_line}</i>"]
         if note:
             lines.append("")
             lines.append(f"<i>{escape(note)}</i>")
@@ -523,6 +544,8 @@ def screener_results_card(results, note: str | None = None, limit: int = 15) -> 
         )
     if len(results) > limit:
         lines.append(f"<i>... và {len(results) - limit} mã khác</i>")
+    if session_line:
+        lines += ["", f"<i>{session_line}</i>"]
     if note:
         lines.append("")
         lines.append(f"<i>{escape(note)}</i>")
@@ -539,7 +562,12 @@ def signals_card(report, limit: int = 15) -> str:
         header = "<b>Chưa có dữ liệu tín hiệu.</b>"
         return header if not report.note else f"{header}\n\n<i>{escape(report.note)}</i>"
 
-    lines = [f"📊 <b>Tín hiệu kỹ thuật phiên {report.as_of:%d/%m/%Y %H:%M}</b>", ""]
+    session = getattr(report, "session", None) or report.as_of.date()
+    lines = [
+        f"📊 <b>Tín hiệu kỹ thuật phiên {session:%d/%m/%Y}</b>",
+        f"<i>Tính lúc {report.as_of:%H:%M %d/%m/%Y}</i>",
+        "",
+    ]
 
     lines.append(f"<b>📈 TÍN HIỆU TÍCH CỰC (MUA / TÍCH LUỸ)</b> ({len(report.buy)} mã)")
     if not report.buy:

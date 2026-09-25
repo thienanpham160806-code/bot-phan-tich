@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, timedelta
+from datetime import time as dt_time
 
+import pandas as pd
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
-from ...config import get_universe_config
+from ...config import get_universe_config, now_local
 from ...data.router import get_router
 from ...logging_conf import get_logger
 from ..formatters import error_card, market_card
@@ -44,7 +46,7 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
 🔍 <b>2. NHU CẦU: TÌM CƠ HỘI ĐẦU TƯ TOÀN SÀN</b>
 <i>(Quét toàn bộ thị trường, không cần nhập mã cụ thể)</i>
 
-• <code>/loc</code> — <b>Bộ lọc cổ phiếu thông minh</b>
+• <code>/loc</code> — <b>Bộ lọc cổ phiếu toàn sàn</b>
   ➔ Bấm 1 trong 3 nút chiến lược dựng sẵn:
      🚀 <b>Đột phá:</b> Vượt mây Kumo + MACD cắt lên + Von nổ
      📦 <b>Tích luỹ:</b> Nén nền chặt + RSI an toàn + Von cạn kiệt
@@ -53,11 +55,11 @@ HELP_TEXT = """<b>🤖 BOT PHÂN TÍCH KỸ THUẬT CHỨNG KHOÁN VIỆT NAM</b
      <code>/loc san=HOSE kn=MUA</code> (Lọc mã MUA trên sàn HOSE)
      <code>/loc may=tren kl=1.2</code> (Mã nằm trên mây, khối lượng tăng)
 
-• <code>/tinhieu</code> — <b>Tín hiệu MUA / BÁN trong ngày</b>
+• <code>/tinhieu</code> — <b>Tín hiệu MUA / BÁN phiên gần nhất</b>
   ➔ Danh sách cổ phiếu xuất hiện tín hiệu MUA/TÍCH LUỸ hoặc BÁN ở phiên gần nhất.
 
-• <code>/market</code> — <b>Xu hướng thị trường chung (VN-Index)</b>
-  ➔ Đánh giá sức mạnh thị trường để quyết định giải ngân hay giữ tiền.
+• <code>/market</code> — <b>Chỉ số VN-Index</b>
+  ➔ Điểm mới nhất (cả trong phiên), mức tăng/giảm, biên độ, khối lượng.
 
 • <code>/tintuc</code> — <b>Bản tin vĩ mô, nghị định & luật thị trường</b>
   ➔ Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất.
@@ -100,30 +102,50 @@ async def cmd_help(message: Message) -> None:
     await message.answer(HELP_TEXT, reply_markup=main_menu())
 
 
+def _benchmark_bars(benchmark: str) -> pd.DataFrame:
+    """Nen ngay cua chi so, UU TIEN gap-chart cua Vietcap (co nen dang chay
+    trong phien). Router (kho/cache 12 gio) chi la du phong - no giu nen hom
+    qua suot phien, nen /market luc 13h tung hien diem phien hom truoc."""
+    from ...data.vietcap import fetch_daily_bars
+
+    try:
+        bars = fetch_daily_bars(benchmark, count_back=30)
+        if len(bars) >= 2:
+            return bars
+    except Exception as exc:  # noqa: BLE001 - con nguon du phong ben duoi
+        log.warning("/market: gap-chart loi (%s), dung router", exc)
+    end = date.today()
+    return get_router().ohlcv(benchmark, end - timedelta(days=30), end)
+
+
 @router.message(Command("market"))
 async def cmd_market(message: Message) -> None:
     try:
-        data = get_router()
         benchmark = get_universe_config().get("benchmark", "VNINDEX")
-        end = date.today()
-        frame = await asyncio.to_thread(data.ohlcv, benchmark, end - timedelta(days=30), end)
+        frame = await asyncio.to_thread(_benchmark_bars, benchmark)
         if frame.empty:
             await message.answer(error_card(f"Không có dữ liệu cho {benchmark}"))
             return
+        frame = frame.sort_values("time")
         last = frame.iloc[-1]
         prev = frame.iloc[-2] if len(frame) > 1 else last
         change_pts = (float(last["close"]) - float(prev["close"])) if prev["close"] else 0.0
         change_pct = (change_pts / float(prev["close"])) if prev["close"] else 0.0
+        now = now_local()
+        session = pd.Timestamp(last["time"]).date()
+        # Truoc 15h cua chinh ngay do: nen chua dong, "diem" la diem hien tai.
+        live_at = now if session == now.date() and now.time() < dt_time(15, 0) else None
         await message.answer(
             market_card(
                 benchmark,
                 float(last["close"]),
                 change_pct,
-                last["time"].date(),
+                session,
                 change_pts=change_pts,
                 high=float(last.get("high", 0)),
                 low=float(last.get("low", 0)),
                 volume=float(last.get("volume", 0)),
+                live_at=live_at,
             )
         )
     except Exception as exc:

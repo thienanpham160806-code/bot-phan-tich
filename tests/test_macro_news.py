@@ -241,3 +241,34 @@ def test_auto_subscribe_failure_does_not_block_command(monkeypatch):
 
     result = asyncio.run(main.AutoSubscribeNews()(handler, _tg_message(9), {}))
     assert result == "ok"
+
+
+def test_market_card_labels_live_session():
+    from bot_phan_tich.bot.formatters import market_card
+
+    live = market_card("VNINDEX", 1775.09, -0.0147, datetime(2026, 9, 24).date(),
+                       change_pts=-26.56, live_at=datetime(2026, 9, 24, 13, 5))
+    assert "Điểm hiện tại" in live and "đang diễn ra, cập nhật 13:05" in live
+    closed = market_card("VNINDEX", 1775.09, -0.0147, datetime(2026, 9, 24).date())
+    assert "Điểm đóng cửa" in closed and "đang diễn ra" not in closed
+
+
+def test_market_falls_back_to_router_when_live_source_fails(monkeypatch):
+    import pandas as pd
+
+    from bot_phan_tich.bot.handlers import common
+    from bot_phan_tich.data import vietcap
+
+    def broken(*_a, **_k):
+        raise RuntimeError("Vietcap loi")
+
+    cached = pd.DataFrame({"time": pd.to_datetime(["2026-09-23", "2026-09-24"]),
+                           "close": [1801.65, 1775.09]})
+
+    class FakeRouter:
+        def ohlcv(self, *_a, **_k):
+            return cached
+
+    monkeypatch.setattr(vietcap, "fetch_daily_bars", broken)
+    monkeypatch.setattr(common, "get_router", lambda: FakeRouter())
+    assert common._benchmark_bars("VNINDEX") is cached
