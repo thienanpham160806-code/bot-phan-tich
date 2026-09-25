@@ -9,6 +9,8 @@ from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from ...analysis.scoring import recommend as compute_recommendation
+from ...data import market_store
+from ...data.base import ProviderError
 from ...data.router import get_router
 from ...logging_conf import get_logger
 from ..charts import candlestick_png
@@ -27,8 +29,22 @@ def _load_frame(symbol: str, days: int = _LOOKBACK_DAYS):
     """Nap gia va kiem tra du lieu toi thieu. Nem ValueError voi thong bao
     de hieu neu ma khong ton tai hoac chua du lich su - de handler bat va
     hien thi bang error_card(), khong sap bot."""
+    listed = market_store.load_symbols()
+    if (
+        len(symbol) == 3 and symbol.isalnum() and not listed.empty
+        and symbol not in set(listed["symbol"].astype(str))
+    ):
+        # Ma dang co phieu nhung khong niem yet: bao ngay, khong goi mang.
+        raise ValueError(f"Mã {symbol} không có trong danh sách niêm yết HOSE/HNX/UPCOM.")
     end = date.today()
-    frame = get_router().ohlcv(symbol, end - timedelta(days=days), end)
+    try:
+        frame = get_router().ohlcv(symbol, end - timedelta(days=days), end)
+    except ProviderError as exc:
+        log.warning("Khong lay duoc gia %s: %s", symbol, exc)  # chi tiet ky thuat chi vao log
+        raise ValueError(
+            f"Không lấy được dữ liệu giá cho {symbol}: mã có thể không tồn tại, hoặc "
+            "nguồn dữ liệu đang lỗi — thử lại sau ít phút."
+        ) from exc
     if frame.empty:
         raise ValueError(f"Không có dữ liệu giá cho {symbol}. Mã có thể không tồn tại.")
     if len(frame) < _MIN_BARS:

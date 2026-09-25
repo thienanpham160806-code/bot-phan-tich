@@ -204,7 +204,7 @@ def recommendation_card(rec) -> str:
     if rec.risk_reward is not None:
         rr = rec.risk_reward
         if rr >= 2.0:
-            rr_eval = "Rất hấp dẫn (kỳ vọng lãi gấp đôi rủi ro)"
+            rr_eval = "Rất hấp dẫn (lãi kỳ vọng từ 2 lần rủi ro trở lên)"
         elif rr >= 1.5:
             rr_eval = "Tốt, đạt chuẩn quản trị rủi ro"
         else:

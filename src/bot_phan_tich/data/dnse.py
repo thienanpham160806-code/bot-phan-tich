@@ -73,6 +73,12 @@ class DnseUnreachable(ProviderError):
     ngay cung vo ich, nen khong retry va router chuyen nguon ke tiep."""
 
 
+class DnseRequestError(ProviderError):
+    """Yeu cau khong the thanh cong du thu lai: DNSE tu choi (HTTP 4xx, vd
+    "invalid symbol") hoac chua cau hinh khoa API - khong retry (ban cu thu 5
+    lan: /kn ma sai mat ~40s, may chua co khoa DNSE cham hang chuc giay/ma)."""
+
+
 def _is_connection_error(exc: BaseException) -> bool:
     reason = exc.reason if isinstance(exc, urllib3.exceptions.MaxRetryError) else exc
     # NewConnectionError (tu choi ket noi, loi DNS) la lop con cua ConnectTimeoutError.
@@ -124,7 +130,7 @@ class DnseProvider(PriceProvider):
         if self._client is None:
             secrets = get_secrets()
             if not secrets.dnse_api_key or not secrets.dnse_api_secret:
-                raise ProviderError(
+                raise DnseRequestError(
                     "Thieu DNSE_API_KEY / DNSE_API_SECRET trong .env. "
                     "Dang ky ung dung tai https://developers.dnse.com.vn"
                 )
@@ -162,6 +168,8 @@ class DnseProvider(PriceProvider):
         _raise_if_down()
         try:
             status, body = call()
+        except ProviderError:
+            raise  # vd thieu khoa API (DnseRequestError): giu nguyen loai loi
         except Exception as exc:  # SDK nem nhieu loai loi khac nhau
             if _is_connection_error(exc):
                 _mark_down(exc)
@@ -172,6 +180,8 @@ class DnseProvider(PriceProvider):
     @staticmethod
     def _parse_response(status: int | None, body: str | None, what: str) -> dict:
         """Kiem tra status va json.loads() body_text - DNSEClient khong tu parse."""
+        if status is not None and 400 <= status < 500 and status != 429:
+            raise DnseRequestError(f"DNSE {what} tra ve HTTP {status}: {body}")
         if status is None or status >= 300:
             raise ProviderError(f"DNSE {what} tra ve HTTP {status}: {body}")
         try:
@@ -184,7 +194,8 @@ class DnseProvider(PriceProvider):
         # Loi ket noi khong thu lai: da cho du _CONNECT_TIMEOUT, thu tiep chi
         # lam lenh cua nguoi dung treo them.
         retry=retry_if_exception(
-            lambda e: isinstance(e, ProviderError) and not isinstance(e, DnseUnreachable)
+            lambda e: isinstance(e, ProviderError)
+            and not isinstance(e, (DnseUnreachable, DnseRequestError))
         ),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),

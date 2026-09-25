@@ -8,6 +8,7 @@ khong co PDF nao ca, van tra ve nhan xet dua tren du lieu co cau truc
 from __future__ import annotations
 
 import asyncio
+from html import escape
 from pathlib import Path
 
 from aiogram import Bot, Router
@@ -71,6 +72,16 @@ def _build_commentary(symbol: str, pdf_path: Path | None) -> str:
         hits = risk_keywords(text)
 
     financials = get_router().financials(symbol, period="year")
+    if pdf_path is None and all(frame.empty for frame in financials.values()):
+        # Thuong gap nhat: vnstock goi mien phi gioi han 20 luot/phut, vua goi
+        # /info (nhieu luot) xong goi /fin ngay la het luot. Noi ro thay vi in
+        # sau muc "khong co du lieu".
+        return (
+            f"⚠️ Chưa lấy được báo cáo tài chính của <b>{escape(symbol)}</b>. Nguồn dữ "
+            "liệu (Vietcap qua vnstock, gói miễn phí giới hạn 20 lượt/phút) có thể đang "
+            "tạm từ chối — thử lại sau khoảng 1 phút. Nếu vẫn không có, mã này có thể "
+            "chưa có BCTC năm."
+        )
     trend = trend_analysis(financials)
 
     commentary = generate_commentary(symbol, audit, hits, trend)

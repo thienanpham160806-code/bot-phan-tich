@@ -87,3 +87,22 @@ def test_sdk_client_gets_short_connect_timeout(monkeypatch):
     timeout = client._http.connection_pool_kw["timeout"]
     assert timeout.connect_timeout == dnse._CONNECT_TIMEOUT
     assert client._http.connection_pool_kw["retries"].connect == 0
+
+
+def test_http_4xx_is_not_retried():
+    client = FakeClient()
+    client.get_ohlc = lambda *_a, **_k: (client.__setattr__("calls", client.calls + 1)
+                                         or (400, '{"message":"invalid symbol"}'))
+    with pytest.raises(dnse.DnseRequestError):
+        _provider(client).ohlcv("ZZZ", date(2026, 1, 1), date(2026, 2, 1))
+    assert client.calls == 1
+
+
+def test_missing_api_keys_fail_fast(monkeypatch):
+    from bot_phan_tich.config import Secrets
+
+    monkeypatch.setattr(dnse, "get_secrets", lambda: Secrets())
+    started = time.monotonic()
+    with pytest.raises(dnse.DnseRequestError, match="DNSE_API_KEY"):
+        DnseProvider().ohlcv("FPT", date(2026, 1, 1), date(2026, 2, 1))
+    assert time.monotonic() - started < 0.5  # khong thu lai 5 lan
