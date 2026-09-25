@@ -27,6 +27,10 @@ from .cleaner import clean_ohlcv
 
 log = get_logger(__name__)
 
+# Phien dau cua cache duoc phep tre hon ngay bat dau duoc hoi toi da bay nhieu
+# ngay (cuoi tuan, nghi Tet ~9 ngay) ma van coi la "du khoang".
+_CACHE_START_SLACK_DAYS = 10
+
 
 def _build(name: str):
     if name == "dnse":
@@ -97,7 +101,12 @@ class DataRouter:
                 is_stale = (
                     is_weekday and is_after_close and (end >= today) and (last_cached_date < today)
                 )
-                if not is_stale:
+                # Cache chi chua khoang da hoi LAN TRUOC: hoi 3 thang roi hoi 6
+                # thang thi cache khong du - phai tai lai (ban cu tra ve ban 3
+                # thang, backtest 6 thang lay nham loi nhuan VN-Index 3 thang).
+                first_cached_date = pd.to_datetime(cached.iloc[0]["time"]).date()
+                covers_start = first_cached_date <= start + timedelta(days=_CACHE_START_SLACK_DAYS)
+                if not is_stale and covers_start:
                     return _slice(cached, start, end)
 
         errors: list[str] = []
