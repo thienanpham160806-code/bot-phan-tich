@@ -28,8 +28,8 @@ Chi tiết (virtualenv, khoá DNSE tuỳ chọn): mục 1 và 2.
 
 | Lệnh | Làm gì | Mất bao lâu |
 |---|---|---|
-| `python scripts/backfill_data.py` | Tải giá toàn sàn (HOSE/HNX/UPCOM, khoảng 1.500 mã) về máy, lưu vào **một file duy nhất** `data/market/ohlcv.parquet`. | Lần đầu 2–3 phút (500 phiên/mã). Các lần sau vài chục giây: chỉ tải thêm 10 phiên gần nhất rồi gộp vào kho cũ. |
-| `python scripts/build_snapshot.py` | Chạy chiến lược (MACD + RSI thích ứng + Ichimoku) cho từng mã đủ thanh khoản trong kho, ghi ra bảng kết quả `data/market/snapshot.parquet`. **Đây chính là bảng mà `/loc` và `/tinhieu` đọc** — hai lệnh này không tự tính gì. | Vài giây (khoảng 200 mã). |
+| `python scripts/backfill_data.py` | Tải giá toàn sàn (HOSE/HNX/UPCOM, khoảng 1.500 mã) về máy, lưu vào **một file duy nhất** `data/market/ohlcv.parquet`. | Lần đầu 2–3 phút (500 phiên/mã). Các lần sau khoảng 1–2 phút: vẫn gọi mỗi mã một lượt nhưng chỉ tải 10 phiên gần nhất rồi gộp vào kho cũ. |
+| `python scripts/build_snapshot.py` | Chạy chiến lược (MACD + RSI thích ứng + Ichimoku) cho từng mã đủ thanh khoản trong kho, ghi ra bảng kết quả `data/market/snapshot.parquet`. **Đây chính là bảng mà `/loc` và `/tinhieu` đọc** — hai lệnh này không tự tính gì. | 5–20 giây (khoảng 200 mã, tuỳ máy). |
 
 **Thứ tự bắt buộc: `backfill_data.py` trước, `build_snapshot.py` sau.**
 `build_snapshot.py` chỉ đọc kho do `backfill_data.py` tạo ra. Chạy ngược lại

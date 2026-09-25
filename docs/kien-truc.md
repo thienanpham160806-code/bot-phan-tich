@@ -5,8 +5,10 @@
 Day la thay doi kien truc quan trong nhat cua du an (giai quyet triet de van
 de "/loc treo bot" va "chi co 13 ma"): moi tinh toan NANG (goi mang, tinh
 chi bao) deu duoc lam TRUOC va MOT LAN, o NGOAI luong xu ly tin nhan Telegram.
-Luc bot dang tra loi nguoi dung, no chi DOC BANG co san - khong bao gio tu
-tinh lai hay goi mang trong luc dang phuc vu mot lenh.
+Voi `/loc` va `/tinhieu`, bot chi DOC BANG co san - khong tinh lai, khong goi
+mang. Cac lenh cho MOT ma (`/kn`, `/info`, `/fin`) va `/market` van co the
+goi mang (ma chua co trong kho, BCTC, diem VN-Index trong phien), nhung luon
+trong thread rieng nen khong lam treo cac lenh khac.
 
 ```
   Vietcap (endpoint cong khai)      DNSE OpenAPI
@@ -131,9 +133,11 @@ tinh, cho phep `/help` va cac lenh khac van tra loi ngay lap tuc song song
    lieu duoc "dung san" (precomputed) - handler chi doc bang, khong tinh lai.
 6. **Handler khong bao gio chan event loop.** Moi ham nang (lookup, recommend,
    fintext, ve bieu do, quet watchlist) deu boc bang `await asyncio.to_thread(...)`.
-7. **Moi nguong nam trong `config/settings.yaml`,** khong hard-code trong ma
-   nguon (trong so cham diem, nguong RSI thich ung, tham so Ichimoku, cac
-   dieu kien cua 3 bo loc dung san...).
+7. **Nguong cua chien luoc nam trong `config/settings.yaml`,** khong hard-code
+   (trong so cham diem, nguong RSI thich ung, tham so Ichimoku, dieu kien cua
+   3 bo loc dung san, lich chay). Mot so nguong phu tro nam trong ma nguon kem
+   ghi chu: dieu kien canh bao cuoi phien (`alerts/eod.py`), 2 gio cua ban tin
+   tu dong (`data/macro_news.py`).
 8. **`alerts/` khong goi Telegram API.** `run_eod_scan()` chi tra ve du lieu
    can gui; `bot/main.py` moi thuc su goi `bot.send_message()`.
 9. **Khong bao gio bia du lieu.** Truong nao khong lay duoc thi de `None` /
@@ -189,9 +193,18 @@ tinh theo gio `bot.timezone` (Viet Nam), khong theo gio may chu (Render UTC).
    nhanh - duoi 1 giay tren du lieu thuc te) de nhat quan voi nguyen tac 6.
 4. Ket qua qua `bot/formatters.py:screener_results_card()` / `signals_card()`.
 
+## Luong lenh `/market`
+
+`bot/handlers/common.py::_benchmark_bars()` lay nen ngay cua VN-Index tu
+gap-chart cua Vietcap (`data/vietcap.py::fetch_daily_bars`) - co ca nen DANG
+CHAY trong phien, nen luc 13h la diem hien tai chu khong phai dong cua hom
+truoc. Loi thi du phong qua `data/router.py` (kho/cache).
+
 ## Luong lenh `/khuyennghi`, `/bieudo` (mot ma cu the)
 
-1. Handler nap gia qua `data.router.ohlcv()` (uu tien doc tu `market_store`).
+1. Ma dang co phieu (3 ky tu) khong co trong danh sach niem yet cua kho: bao
+   ngay, khong goi mang. Con lai nap gia qua `data.router.ohlcv()` (uu tien
+   doc tu `market_store`); loi nguon thi bao ngan gon, chi tiet chi ghi log.
 2. `analysis.scoring.recommend()` chay ca ba `indicators/` (macd_state,
    rsi_state, ichimoku_state) + `indicators.divergence.detect_divergence()`.
 3. Gop diem co trong so, ap quy tac hop luu (phu quyet Ichimoku, tru diem
