@@ -4,12 +4,61 @@ Telegram Bot phân tích kỹ thuật chứng khoán Việt Nam — hợp lưu b
 **MACD, RSI (ngưỡng thích ứng), Ichimoku Kinko Hyo** — trên **toàn sàn**
 HOSE/HNX/UPCOM (không chỉ vài mã theo dõi mẫu).
 
-Kiến trúc cốt lõi: dữ liệu giá toàn sàn được nạp một lần vào một kho parquet
-duy nhất (`data/market_store.py`), khuyến nghị của **từng mã** được tính sẵn
-**một lần cuối mỗi phiên** thành "snapshot" (`analysis/snapshot.py`) — nên
-`/loc` và `/tinhieu` chỉ **đọc bảng có sẵn**, trả lời dưới 1 giây, và bot
-**không bao giờ bị treo** dù đang quét toàn sàn ở nền (mọi việc nặng đều chạy
-qua `asyncio.to_thread`/tiến trình riêng — xem [docs/kien-truc.md](docs/kien-truc.md)).
+Kiến trúc cốt lõi: giá toàn sàn nằm trong một kho parquet duy nhất
+(`data/market_store.py`); khuyến nghị của từng mã được tính sẵn thành
+"snapshot" (`analysis/snapshot.py`) sau phiên sáng và sau giờ đóng cửa, nên
+`/loc` và `/tinhieu` chỉ đọc bảng có sẵn và trả lời dưới 1 giây. Việc nặng
+chạy trong thread riêng (`asyncio.to_thread`), bot vẫn trả lời lệnh khác trong
+lúc nạp dữ liệu — xem [docs/kien-truc.md](docs/kien-truc.md).
+
+---
+
+## 0. Bắt đầu nhanh
+
+### 0.1. Cài đặt
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env    # Windows: copy .env.example .env — rồi điền TELEGRAM_BOT_TOKEN
+```
+
+Chi tiết (virtualenv, khoá DNSE tuỳ chọn): mục 1 và 2.
+
+### 0.2. Hai lệnh nạp dữ liệu
+
+| Lệnh | Làm gì | Mất bao lâu |
+|---|---|---|
+| `python scripts/backfill_data.py` | Tải giá toàn sàn (HOSE/HNX/UPCOM, khoảng 1.500 mã) về máy, lưu vào **một file duy nhất** `data/market/ohlcv.parquet`. | Lần đầu 2–3 phút (500 phiên/mã). Các lần sau vài chục giây: chỉ tải thêm 10 phiên gần nhất rồi gộp vào kho cũ. |
+| `python scripts/build_snapshot.py` | Chạy chiến lược (MACD + RSI thích ứng + Ichimoku) cho từng mã đủ thanh khoản trong kho, ghi ra bảng kết quả `data/market/snapshot.parquet`. **Đây chính là bảng mà `/loc` và `/tinhieu` đọc** — hai lệnh này không tự tính gì. | Vài giây (khoảng 200 mã). |
+
+**Thứ tự bắt buộc: `backfill_data.py` trước, `build_snapshot.py` sau.**
+`build_snapshot.py` chỉ đọc kho do `backfill_data.py` tạo ra. Chạy ngược lại
+(hoặc chưa backfill) thì kho trống, snapshot rỗng, và `/loc` báo "đang chuẩn
+bị dữ liệu" — đúng lỗi gặp trước đây.
+
+Khi bot đang chạy, nó tự làm lại hai bước này vào thứ 2–6: **11:35** (sau
+phiên sáng, kết quả ghi "tạm tính") và **15:05** (sau giờ đóng cửa, bản chính
+thức). Khởi động trên máy chưa có dữ liệu thì bot cũng tự nạp ở nền (xem tiến
+độ bằng `/trangthai`). Chạy tay hai lệnh trên chủ yếu để có dữ liệu ngay,
+trước khi demo.
+
+**Sự cố thường gặp**
+
+| Hiện tượng | Nguyên nhân | Cách xử lý |
+|---|---|---|
+| `/loc`, `/tinhieu` báo "đang chuẩn bị dữ liệu" | Chưa có snapshot: chưa chạy hai lệnh, chạy sai thứ tự, hoặc bot đang tự nạp ở nền | Chạy `backfill_data.py` rồi `build_snapshot.py`. Nếu bot đang tự nạp: gõ `/trangthai` xem tiến độ, chờ vài phút |
+| `backfill_data.py` báo nhiều mã thất bại (dòng cuối `Xong: X/Y ma`, X thấp hơn Y nhiều) | Vietcap tạm giới hạn tần suất hoặc chặn IP — endpoint bảng giá không chính thức | Đợi vài phút rồi chạy lại. Vài chục mã lỗi là bình thường (mã ngừng giao dịch, mới niêm yết) |
+| `build_snapshot.py` báo "vũ trụ thanh khoản rỗng" | Kho trống (chưa backfill, hoặc backfill tải hỏng hết), hoặc mỗi mã có ít hơn 250 phiên nên không qua điều kiện `universe.min_listed_days` (do đặt `MARKET_COUNT_BACK` < 250) | Chạy `backfill_data.py` trước và xem dòng `Xong:` có đủ mã không. Nếu đã đặt `MARKET_COUNT_BACK`, để ≥ 400 rồi chạy `backfill_data.py --full` |
+| Máy treo / rất chậm khi build | Bản cũ mở nhiều tiến trình, mỗi tiến trình giữ một bản sao kho giá. Bản hiện tại chạy tuần tự, RAM đỉnh khoảng 250 MB | Kiểm tra `snapshot.max_workers: 1` trong `config/settings.yaml`. Máy yếu: đặt `UNIVERSE_MAX_SYMBOLS=200` trong `.env` để chỉ tính 200 mã thanh khoản nhất |
+| Không có dữ liệu hôm nay | Snapshot chính thức chỉ có **sau 15:05**; bản tạm tính phiên sáng có sau 11:35 | Demo trước 11:35 thì dữ liệu là của **phiên hôm trước** — kết quả `/loc`, `/tinhieu` ghi rõ "Dữ liệu phiên dd/mm", cứ nói thẳng với thầy. Từ 11:35 đến 15:05 là bản tạm tính (có ghi chú). `/market` luôn lấy điểm VN-Index mới nhất, kể cả trong phiên |
+
+### 0.3. Chạy bot
+
+```bash
+python scripts/run_bot.py
+```
+
+Tạm dừng service trên Render trước khi chạy trên máy (xem mục 7.1).
 
 ---
 
@@ -77,34 +126,16 @@ Cấu hình Vietcap (nguồn dự phòng, **không cần API key**): qua thư vi
 
 ## 3. Nạp dữ liệu và chạy bot
 
-Ba bước theo đúng thứ tự. Nếu bỏ qua bước 1 và 2, bot vẫn tự nạp khi khởi
-động (dùng tạm ~12 mã trong danh sách theo dõi trong vài giây đầu, rồi nạp
-toàn sàn ở nền — theo dõi bằng `/trangthai`), nhưng chạy trước sẽ có ngay
-dữ liệu đầy đủ:
-
-```bash
-# 1. Nạp giá TOÀN SÀN (HOSE/HNX/UPCOM) vào kho parquet cục bộ (data/market/ohlcv.parquet).
-#    Lần đầu tải 500 phiên (~2 năm)/mã cho ~1.500 mã — mất khoảng 2 phút,
-#    tuỳ tốc độ mạng (500 phiên vẫn dư cho mọi chỉ báo: Ichimoku cần 52+26,
-#    RSI thích ứng cần 252). Các lần sau chỉ tải thêm vài phiên mới nhất và
-#    gộp vào kho cũ — vài chục giây. Số phiên chỉnh ở config/settings.yaml
-#    (market_store.count_back_bootstrap) hoặc biến MARKET_COUNT_BACK.
-python scripts/backfill_data.py
-
-# 2. Tính khuyến nghị (MACD/RSI/Ichimoku hợp lưu) cho MỌI mã đủ điều kiện
-#    thanh khoản, MỘT LẦN, chạy song song nhiều tiến trình. Ghi ra
-#    data/market/snapshot.parquet — đây là bảng mà /loc và /tinhieu đọc.
-#    Đo thực tế: 221 mã trong 6,5 giây.
-python scripts/build_snapshot.py
-
-# 3. Chạy bot (polling — xem mục 7 để biết vì sao không cần server).
-python -m bot_phan_tich.bot.main
-```
+Hai lệnh nạp dữ liệu, thứ tự và sự cố thường gặp: xem **mục 0.2**. Tuỳ chọn
+của `backfill_data.py`: `--full` (tải lại từ đầu), `--watchlist-only` (chỉ 12
+mã trong `config/universe.yaml`, để phát triển cho nhanh). Số phiên tải lần
+đầu: `market_store.count_back_bootstrap` trong `config/settings.yaml` hoặc
+biến `MARKET_COUNT_BACK`.
 
 Tuỳ chọn thêm (không bắt buộc để bot chạy được):
 
 ```bash
-# Chỉ số cơ bản (P/E, P/B, ROE) cho vu tru thanh khoan — bổ sung điều kiện
+# Chỉ số cơ bản (P/E, P/B, ROE) cho vũ trụ thanh khoản — bổ sung điều kiện
 # lọc pe=/roe= trong /loc. Cache 7 ngày, tự bỏ qua nếu chạy lại quá sớm.
 python scripts/backfill_fundamentals.py
 
@@ -122,29 +153,29 @@ Trên Windows có thể dùng script tác vụ cho gọn (`.\tasks.ps1 <task>` �
 
 ## 4. Bộ lệnh bot
 
-Giao diện bot được thiết kế theo 3 nhóm nhu cầu cốt lõi, hỗ trợ lệnh ngắn gọn (chạm 1-chạm sao chép):
+Lệnh chia theo 3 nhóm:
 
 ### 🎯 Nhóm 1: Phân tích 1 cổ phiếu cụ thể
 | Lệnh ngắn | Bí danh | Chức năng |
 |---|---|---|
-| `/kn MA` | `/khuyennghi`, `/rec` | Khuyến nghị MUA/BÁN/THEO DÕI, kế hoạch giá (vào/cắt lỗ %/mục tiêu %), R:R, tỷ trọng giải ngân và lời khuyên F0 |
+| `/kn MA` | `/khuyennghi`, `/rec` | Khuyến nghị MUA/TÍCH LUỸ/THEO DÕI/GIẢM TỶ TRỌNG/BÁN, kế hoạch giá (vùng vào, cắt lỗ, mục tiêu), R:R, tỷ trọng giải ngân gợi ý |
 | `/chart MA` | `/bieudo` | Biểu đồ nến kỹ thuật tích hợp mây Ichimoku, MACD, RSI |
-| `/info MA` | `/tracuu` | Hồ sơ niêm yết, định giá P/E, P/B, ROE, vốn hoá chuẩn xác và tin tức công bố thông tin gắn link báo chí |
+| `/info MA` | `/tracuu` | Hồ sơ niêm yết, P/E, P/B, ROE, vốn hoá và tin công bố thông tin gần đây |
 | `/fin MA` | `/bctc` | Bóc tách BCTC, cơ cấu nợ vay và rủi ro thuyết minh (gửi kèm PDF BCTC nếu có) |
 
 ### 🔍 Nhóm 2: Tìm cơ hội đầu tư & Thông tin toàn sàn
 | Lệnh ngắn | Bí danh | Chức năng |
 |---|---|---|
 | `/loc [đk]` | `/screen` | Bộ lọc cổ phiếu toàn sàn — 3 bộ lọc dựng sẵn (Đột phá, Tích luỹ, Cảnh báo), hoặc gõ điều kiện tuỳ biến (VD: `/loc san=HOSE kn=MUA kl=1.2`) |
-| `/tinhieu` | `/signals` | Tổng hợp cổ phiếu phát sinh tín hiệu MUA hoặc BÁN ở phiên gần nhất |
-| `/market` | | Chỉ số thị trường VN-Index (điểm số, biến động tăng/giảm, biên độ ngày, thanh khoản) |
+| `/tinhieu` | `/signals` | Các mã có khuyến nghị MUA/TÍCH LUỸ hoặc BÁN/GIẢM TỶ TRỌNG ở phiên gần nhất (ghi rõ dữ liệu phiên nào) |
+| `/market` | | VN-Index: điểm mới nhất (trong phiên là điểm hiện tại, lấy trực tiếp từ Vietcap), mức tăng/giảm, biên độ, khối lượng |
 | `/tintuc` | `/news` | Tổng hợp tin tức vĩ mô, văn bản pháp quy, nghị định, nghị quyết mới nhất. Tin tự động mỗi 1 giờ được **bật sẵn** cho ai nhắn bot; `/tintuc off` để tắt, `/tintuc on` để bật lại |
 
 ### ⭐ Nhóm 3: Quản lý danh mục & Cảnh báo cá nhân
 | Lệnh ngắn | Bí danh | Chức năng |
 |---|---|---|
 | `/sub MA` | `/theodoi` | Thêm mã vào danh mục theo dõi cá nhân |
-| `/watchlist` | `/danhsach` | Xem danh sách cổ phiếu theo dõi kèm trạng thái khuyến nghị hôm nay |
+| `/watchlist` | `/danhsach` | Xem danh sách cổ phiếu theo dõi kèm khuyến nghị hiện tại |
 | `/unsub MA` | `/bosach` | Bỏ theo dõi một mã |
 | `/canhbao` | `/alerts` | Bật/tắt cảnh báo tự động cuối phiên (15:05 mỗi ngày giao dịch) |
 | `/trangthai` | `/status` | Tình trạng dữ liệu: kho giá, snapshot (mới/cũ/tạm thời), tiến độ nạp nền, lỗi gần nhất, RAM đang dùng |
@@ -168,9 +199,9 @@ Vietcap/DNSE --> data/market_store.py (kho giá TOÀN SÀN, 1 file parquet)
                         |  scripts/backfill_data.py (tải/cập nhật)
                         v
               analysis/snapshot.py (build_snapshot: recommend() 1 lần/mã,
-                        |            chạy song song, ghi snapshot.parquet)
-                        |  scripts/build_snapshot.py, hoặc tự động mỗi
-                        |  phiên qua bot/scheduler.py (bot.scan_cron)
+                        |            tuần tự, ghi snapshot.parquet)
+                        |  scripts/build_snapshot.py, hoặc tự động qua
+                        |  bot/scheduler.py: 11:35 (tạm tính) và 15:05
                         v
               analysis/screener.py, /tinhieu  --  CHỈ ĐỌC snapshot.parquet
                         |
@@ -182,10 +213,9 @@ Nguyên tắc hợp lưu quan trọng nhất: **Ichimoku có quyền phủ quy�
 nghị MUA** khi giá nằm dưới mây Kumo, bất kể điểm tổng của MACD/RSI cao bao
 nhiêu — xem `analysis/scoring.py`.
 
-Mọi hàm nặng (tra cứu, khuyến nghị, vẽ biểu đồ, text mining BCTC, quét
-watchlist) đều chạy qua `await asyncio.to_thread(...)` trong handler — bot
-luôn trả lời `/help` ngay lập tức dù đang có lệnh nặng khác chạy song song
-(xem `tests/test_nonblocking.py`).
+Các hàm nặng (tra cứu, khuyến nghị, vẽ biểu đồ, text mining BCTC, quét
+watchlist) chạy qua `await asyncio.to_thread(...)` trong handler, nên `/help`
+vẫn trả lời ngay khi đang có lệnh nặng khác (xem `tests/test_nonblocking.py`).
 
 ---
 
@@ -193,7 +223,7 @@ luôn trả lời `/help` ngay lập tức dù đang có lệnh nặng khác ch�
 
 | Loại dữ liệu | Nguồn chính | Nguồn dự phòng | Cần API key? |
 |---|---|---|---|
-| Giá lịch sử/cuối phiên (OHLCV) | DNSE OpenAPI (`data/dnse.py`) | Vietcap/VCI, endpoint công khai bảng giá (`data/vietcap.py`) | DNSE: có; Vietcap: không |
+| Giá lịch sử/cuối phiên (OHLCV) | Kho toàn sàn nạp từ Vietcap (`data/vietcap.py`, endpoint công khai bảng giá); mã ngoài kho: DNSE OpenAPI (`data/dnse.py`) | Vietcap/VCI qua `vnstock` | DNSE: có; Vietcap: không |
 | Danh sách mã toàn sàn | DNSE (`/market/instruments`) | Vietcap (`/price/symbols/getAll`) | Không (Vietcap) |
 | Báo cáo tài chính, chỉ số cơ bản | Vietcap/VCI qua `vnstock` | — | Không |
 | Ngành (industry map) | Vietcap/VCI qua `vnstock` | — | Không |
@@ -210,10 +240,10 @@ phòng theo thứ tự khai báo ở `config/settings.yaml: data.price_sources` 
 
 | Tình huống | Hệ thống làm gì / bạn nên làm gì |
 |---|---|
-| Nguồn chính (DNSE) trả lỗi / timeout / chưa có API key | `data/router.py` tự chuyển sang nguồn dự phòng (Vietcap) |
+| DNSE lỗi / không kết nối được / chưa có API key | `data/router.py` chuyển sang Vietcap. Không kết nối được (vd Render ở Singapore bị DNSE chặn) thì bỏ qua DNSE 15 phút, không chờ lại |
 | Bị giới hạn tần suất (429, hoặc vnstock/vnai tự gọi `sys.exit()` khi chạm hạn mức) | Lùi theo cấp số nhân tối đa 5 lần thử; nếu vẫn lỗi, đợi vài phút rồi chạy lại — bản Guest của vnstock giới hạn khoảng 20 lượt/phút |
 | `backfill_data.py`/`backfill_fundamentals.py` báo hàng loạt mã lỗi hoặc trả về rỗng dù không có exception | Endpoint công khai của Vietcap **không chính thức**, có thể tạm thời giới hạn/chặn theo IP hoặc tần suất truy cập bất thường — thử lại sau vài phút; nếu chạy trên máy chủ/cloud ở nước ngoài, khả năng cao bị chặn nhiều hơn chạy từ máy cá nhân tại Việt Nam (xem mục 7) |
-| Tất cả nguồn đều lỗi | Trả dữ liệu từ cache kèm nhãn thời điểm, bot **không** sập |
+| Tất cả nguồn đều lỗi | Trả dữ liệu cũ trong cache (nếu có, ghi cảnh báo vào log); không có cache thì báo lỗi cho người dùng. Bot không sập |
 | Dữ liệu bẩn (BOM, CRLF, trùng lặp) | `data/cleaner.py` chuẩn hoá trước khi ghi cache |
 | Mã không tồn tại / chưa đủ lịch sử | Handler bắt lỗi cụ thể, trả tin nhắn dễ hiểu qua `bot/formatters.py:error_card()` |
 | Bot vừa khởi động trên máy trắng dữ liệu (lần đầu, hoặc Render gói Free vừa restart) | Bot tự dựng dữ liệu **tạm** cho danh sách theo dõi (`config/universe.yaml`, ~12 mã) trong vài giây — `/loc`, `/tinhieu` có kết quả ngay kèm ghi chú "Dữ liệu tạm thời" — rồi nạp toàn sàn ở nền (vài phút) |
@@ -221,9 +251,9 @@ phòng theo thứ tự khai báo ở `config/settings.yaml: data.price_sources` 
 
 ---
 
-## 7. Vận hành: Chạy ngầm không cần mở code & Triển khai 24/7
+## 7. Vận hành và triển khai
 
-Bot dùng cơ chế **long polling** (`dispatcher.start_polling()`) — không cần mở port mạng, không cần cấu hình webhook hay SSL domain. Bạn có thể vận hành bot linh hoạt theo các cách dưới đây:
+Bot dùng **long polling** (`dispatcher.start_polling()`) — không cần mở port, webhook hay tên miền SSL.
 
 ### 7.1. Chạy trên máy cá nhân (để thử / phát triển)
 
@@ -244,11 +274,9 @@ sổ (hoặc `Ctrl+C`) là bot dừng.
 **Cách kiểm tra bot còn sống:** gõ `/trangthai` trên Telegram (trả lời được
 là bot đang chạy).
 
-### 7.2. Chạy 24/7 vĩnh viễn trên Máy chủ Cloud / VPS Linux (Docker)
+### 7.2. Chạy trên VPS Linux bằng Docker
 
-Nếu bạn muốn bot chạy liên tục cả ngày lẫn đêm kể cả khi bạn tắt máy tính cá nhân đi ngủ:
-
-Dự án đã đóng gói sẵn `Dockerfile` và `docker-compose.yml`:
+Repo có sẵn `Dockerfile` và `docker-compose.yml`:
 
 ```bash
 # 1. Clone code về VPS Linux (Ubuntu / Debian / CentOS)
@@ -259,7 +287,7 @@ cd bot-phan-tich
 cp .env.example .env
 nano .env  # Điền TELEGRAM_BOT_TOKEN
 
-# 3. Khởi động bot chạy nền vĩnh viễn bằng Docker
+# 3. Chạy nền bằng Docker
 docker compose up -d --build
 
 # Xem log hoạt động:
@@ -322,18 +350,26 @@ deploy lại. Bỏ các biến giới hạn quy mô ở (c) để chạy toàn s
    có gọi được Vietcap/DNSE không — gói Free không có Shell nên đây là cách
    chẩn đoán duy nhất). Trên máy cá nhân chạy `python scripts/diagnose.py`.
 
-### 7.4. Lịch chạy tự động của Bot
+### 7.4. Lịch chạy tự động
 
-Hệ thống được điều phối tự động bởi `APScheduler`:
+Chạy bằng `APScheduler`, giờ Việt Nam (`bot.timezone`):
 
-1. **Lịch quét tín hiệu cuối phiên (`bot.scan_cron`, mặc định `15:05` thứ 2 – thứ 6):**
-   - Tự động cập nhật nến phiên hôm nay và tính snapshot chỉ báo kỹ thuật toàn sàn.
-   - Quét danh mục cổ phiếu mà từng người dùng đang theo dõi (`/sub`) và chủ động gửi cảnh báo tín hiệu MUA/BÁN hoặc vi phạm cắt lỗ.
-   - Hỗ trợ chạy bù trong vòng 1 tiếng (`misfire_grace_time=3600s`) nếu bot khởi động trễ.
-2. **Lịch tổng hợp tin tức vĩ mô & pháp luật (`bot.news_cron`, mặc định mỗi 1 giờ từ `08:00 – 22:00`):**
-   - Tự động quét RSS từ CafeF & VnExpress, phân loại thông minh (Chính sách, Nghị định, Vĩ mô, TTCK).
-   - Tự động phát sóng (broadcast) bản tin tổng hợp tới tất cả người dùng bật chế độ nhận tin (`/tintuc on`).
-   - Chỉ gửi tin đăng trong 2 giờ gần nhất; nguồn "CafeF Vĩ mô" lẫn tin xã hội nên chỉ giữ tin khớp từ khoá chính sách/vĩ mô.
+1. **Sau phiên sáng — `bot.midday_cron`, mặc định 11:35 thứ 2–6:** tải nến
+   đang chạy của hôm nay cho cả kho rồi tính lại snapshot. `/loc`, `/tinhieu`
+   có giá phiên sáng, kèm ghi chú "tạm tính" (nến chưa đóng, khối lượng mới
+   được nửa phiên). Không gửi cảnh báo. Đặt `midday_cron: ""` để tắt.
+2. **Cuối phiên — `bot.scan_cron`, mặc định 15:05 thứ 2–6:** tải lại nến
+   đóng cửa (ghi đè nến tạm tính), tính snapshot chính thức, rồi so trạng thái
+   các mã người dùng theo dõi (`/sub`) với lần quét trước. Chỉ gửi cảnh báo
+   khi có thay đổi: đổi khuyến nghị, MACD giao cắt, giá đổi vị trí so với mây
+   Kumo, RSI vào/ra vùng quá mua/quá bán, khối lượng > 2 lần TB20, hoặc giá
+   biến động > 4% (tối đa 3 cảnh báo/mã/ngày). Chạy bù trong vòng 1 giờ nếu bot
+   khởi động trễ.
+3. **Tin tức — `bot.news_cron`, mặc định mỗi giờ 08:00–22:00:** quét RSS
+   CafeF và VnExpress, phân loại theo từ khoá (Chính sách – Pháp luật / Vĩ mô
+   & TTCK), gửi tin đăng trong 2 giờ gần nhất cho người đang bật bản tin.
+   Nguồn "CafeF Vĩ mô" lẫn tin xã hội nên chỉ giữ tin khớp từ khoá.
+
 > ⚠️ **Render gói Free xoá CSDL mỗi lần khởi động lại** (danh sách `/sub`,
 > lựa chọn `/tintuc off`...). Bản tin tin tức vẫn tự phục hồi: chat nào nhắn
 > bot bất kỳ lệnh nào đều được bật sẵn bản tin (middleware `AutoSubscribeNews`
