@@ -81,6 +81,69 @@ def _reshape_periods(frame: pd.DataFrame) -> pd.DataFrame:
     return reshaped.sort_index().reset_index()
 
 
+_STATEMENT_PARTS = ("income", "balance", "cashflow")
+# Ty le tang truong LN cong ty me (%/nam) trong bao cao "ratios" - nhan nam
+# cua bao cao nay DUNG (da doi chieu P/E x EPS voi gia cuoi nam, va ROE/tang
+# truong HPG 2023-2024 voi thuc te), nen dung lam "chuan" de kiem tra thu tu.
+_RATIO_PROFIT_GROWTH = "profit_after_tax_for_shareholders_of_the_parent_company"
+
+
+def _parent_profit_column(income: pd.DataFrame) -> str | None:
+    for col in income.columns:
+        if "attributable" in col or "parent" in col:
+            return col
+    return "net_profit" if "net_profit" in income.columns else None
+
+
+def _growth_error(profit: pd.Series, expected: pd.Series) -> float | None:
+    """Sai lech trung binh giua tang truong nam tinh tu `profit` va `expected`
+    (ca hai danh chi muc theo nam, expected tinh bang %)."""
+    growth = profit.astype(float).pct_change()
+    both = pd.concat({"calc": growth, "exp": expected.astype(float) / 100}, axis=1).dropna()
+    both = both[both["calc"].abs() < 10]  # bo nam loi nhuan doi dau/gan 0
+    return None if both.empty else float((both["calc"] - both["exp"]).abs().mean())
+
+
+def _reverse_years(frame: pd.DataFrame) -> pd.DataFrame:
+    """Giu nguyen cot period (tang dan), dao thu tu cac hang so lieu."""
+    values = frame.drop(columns="period").iloc[::-1].reset_index(drop=True)
+    values.insert(0, "period", frame["period"].to_numpy())
+    return values
+
+
+def align_statement_years(bundle: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Sua loi cua vnstock 4.0.8 (nguon VCI): bao cao NAM income/balance/
+    cashflow co nhan cot "2025, 2024, 2023, 2022" nhung so lieu lai xep theo
+    thu tu 2022 -> 2025 (da kiem chung: LNST HPG thuc te 2022 = 8.444 ty nam
+    duoi cot "2025"; tong 2 quy cuoi 2025 cua FPT khop cot "2022"). Khong sua
+    thi /fin bao tang truong thanh suy giam va nguoc lai.
+
+    KHONG dao cung: so tang truong LN cong ty me tinh tu bao cao ket qua kinh
+    doanh voi tang truong trong bao cao "ratios" (nhan dung), chi dao khi thu
+    tu dao khop ro rang hon. Vi vay ham nay idempotent (goi lai tren du lieu
+    da sua khong dao nua) va tu het tac dung neu vnstock sua loi."""
+    income, ratios = bundle.get("income"), bundle.get("ratios")
+    if income is None or ratios is None or income.empty or ratios.empty:
+        return bundle
+    if "period" not in income.columns or _RATIO_PROFIT_GROWTH not in ratios.columns:
+        return bundle
+    profit_col = _parent_profit_column(income)
+    if profit_col is None:
+        return bundle
+    expected = ratios.set_index("period")[_RATIO_PROFIT_GROWTH]
+    as_is = _growth_error(income.set_index("period")[profit_col], expected)
+    flipped = _growth_error(_reverse_years(income).set_index("period")[profit_col], expected)
+    if as_is is None or flipped is None or not flipped < as_is * 0.5:
+        return bundle
+    log.info("Bao cao nam bi dao thu tu nam (loi vnstock) - da sap xep lai")
+    fixed = dict(bundle)
+    for part in _STATEMENT_PARTS:
+        frame = bundle.get(part)
+        if frame is not None and not frame.empty and "period" in frame.columns:
+            fixed[part] = _reverse_years(frame)
+    return fixed
+
+
 class VietcapProvider(PriceProvider, FundamentalProvider):
     """Bao cao tai chinh, danh sach ma, nganh va gia du phong tu Vietcap/VCI."""
 

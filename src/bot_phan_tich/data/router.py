@@ -169,7 +169,7 @@ class DataRouter:
                 # DataFrame la ambiguous") vi DataFrame khong ho tro bool() -
                 # phai kiem tra "is None" tuong minh.
                 result[part] = frame if frame is not None else pd.DataFrame()
-            return result
+            return _align_years(result, period)
 
         for name in self._fund_names:
             try:
@@ -182,7 +182,7 @@ class DataRouter:
                 }
                 for part, frame in bundle.items():
                     cache.write_frame(f"{key}/{part}", frame)
-                return bundle
+                return _align_years(bundle, period)
             except (Exception, SystemExit) as exc:
                 log.warning("financials() that bai o nguon %s cho %s: %s", name, symbol, exc)
 
@@ -246,6 +246,21 @@ class DataRouter:
             except (Exception, SystemExit) as exc:
                 log.warning("company_news() that bai o nguon %s cho %s: %s", name, symbol, exc)
         return []
+
+
+def _align_years(bundle: dict[str, pd.DataFrame], period: str) -> dict[str, pd.DataFrame]:
+    """Bao cao nam cua vnstock co the bi dao thu tu nam - xem
+    data/vietcap.py:align_statement_years(). Ap dung ca khi doc tu cache (du
+    lieu cu luu truoc khi sua) - ham idempotent nen goi nhieu lan van dung."""
+    if period != "year":
+        return bundle
+    from .vietcap import align_statement_years
+
+    try:
+        return align_statement_years(bundle)
+    except Exception as exc:  # noqa: BLE001 - khong duoc lam hong /fin, /info
+        log.warning("Khong kiem tra duoc thu tu nam cua BCTC: %s", exc)
+        return bundle
 
 
 def _slice(frame: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
