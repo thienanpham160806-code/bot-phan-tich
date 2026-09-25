@@ -2,6 +2,7 @@
 # von khong co, nhung `docker build` tren may se chep ca thu muc).
 .env
 data/
+!data/market/fundamentals.parquet
 logs/
 outputs/
 artifacts/
