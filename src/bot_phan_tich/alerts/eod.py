@@ -148,7 +148,11 @@ def _scan_one_symbol(symbol: str, router: DataRouter) -> list[str] | None:
         "rsi_zone": rsi_st.get("zone"),
     }, vol_ratio, day_change_pct)
 
-    alerts_sent_today = previous.get("alerts_sent_today", 0) if previous else 0
+    # Dem theo NGAY: trang thai truoc la cua hom qua thi dem lai tu 0. Ban cu
+    # cong don qua cac ngay nen sau 3 ngay co canh bao, ma do im lang mai mai.
+    today = date.today().isoformat()
+    same_day = previous is not None and previous.get("scan_date") == today
+    alerts_sent_today = previous.get("alerts_sent_today", 0) if same_day else 0
     should_alert = bool(reasons) and alerts_sent_today < _MAX_ALERTS_PER_SYMBOL_PER_DAY
 
     new_state = {
@@ -157,6 +161,7 @@ def _scan_one_symbol(symbol: str, router: DataRouter) -> list[str] | None:
         "price_vs_kumo": ichi_st.get("price_vs_kumo"),
         "rsi_zone": rsi_st.get("zone"),
         "close": close,
+        "scan_date": today,
         "alerts_sent_today": alerts_sent_today + 1 if should_alert else alerts_sent_today,
     }
     _save_state(symbol, new_state, rec)
