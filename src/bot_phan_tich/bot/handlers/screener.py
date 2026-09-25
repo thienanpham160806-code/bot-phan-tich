@@ -75,7 +75,9 @@ async def cmd_screen(message: Message) -> None:
 
     try:
         report = await asyncio.to_thread(screen_report, criteria)
-        text = screener_results_card(report.results, note=report.note)
+        text = screener_results_card(
+            report.results, note=report.note, session=report.session, as_of=report.as_of
+        )
     except Exception as exc:
         log.exception("Lenh /loc (tuy chinh) that bai")
         text = error_card(str(exc))
@@ -105,7 +107,9 @@ async def on_screen_preset(callback: CallbackQuery) -> None:
     await callback.answer("Đang lọc...")
     try:
         report = await asyncio.to_thread(screen_report, factory())
-        text = screener_results_card(report.results, note=report.note)
+        text = screener_results_card(
+            report.results, note=report.note, session=report.session, as_of=report.as_of
+        )
     except Exception as exc:
         log.exception("Loc theo bo dung san %s that bai", preset_key)
         text = error_card(str(exc))

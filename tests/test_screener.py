@@ -278,3 +278,27 @@ def test_parse_criteria_rejects_invalid_alias_value():
 def test_parse_criteria_rejects_non_numeric_score():
     with pytest.raises(screener_mod.CriteriaParseError, match="phải là số"):
         screener_mod.parse_criteria("diem=abc")
+
+
+def test_cards_show_trading_session_not_file_time():
+    """Chay build_snapshot luc 8h sang 25/09 tren du lieu phien 24/09: the
+    phai ghi "phien 24/09", khong phai ngay ghi file."""
+    from datetime import date, datetime
+
+    import pandas as pd
+
+    from bot_phan_tich.analysis.screener import SignalReport, _session_of
+    from bot_phan_tich.bot.formatters import screener_results_card, signals_card
+
+    frame = pd.DataFrame({"as_of": pd.to_datetime(["2026-09-23", "2026-09-24"])})
+    assert _session_of(frame) == date(2026, 9, 24)
+    assert _session_of(pd.DataFrame({"symbol": ["A"]})) is None
+
+    written = datetime(2026, 9, 25, 8, 0)
+    loc = screener_results_card([], session=date(2026, 9, 24), as_of=written)
+    assert "Dữ liệu phiên 24/09/2026 (tính lúc 08:00 25/09)" in loc
+
+    report = SignalReport(buy=[], sell=[], as_of=written, session=date(2026, 9, 24))
+    card = signals_card(report)
+    assert "Tín hiệu kỹ thuật phiên 24/09/2026" in card
+    assert "25/09/2026</b>" not in card

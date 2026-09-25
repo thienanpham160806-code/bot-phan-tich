@@ -83,6 +83,9 @@ price_band:
 
 bot:
   scan_cron: "5 15 * * 1-5"    # 15h05 cac ngay lam viec
+  # Cap nhat kho gia + snapshot sau phien sang (11h30) - /loc, /tinhieu co gia
+  # phien sang, kem ghi chu "tam tinh". De "" de tat.
+  midday_cron: "35 11 * * 1-5"
   max_signals_per_message: 10
   timezone: Asia/Ho_Chi_Minh
 

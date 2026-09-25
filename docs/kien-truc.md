@@ -36,7 +36,9 @@ tinh lai hay goi mang trong luc dang phuc vu mot lenh.
         scripts/build_snapshot.py (thu cong), HOAC tu dong qua
         analysis/snapshot.py :: update_market_data() (mot luong duy nhat,
         co khoa chong chay chong, ghi tien do/loi cho /trangthai):
-          - bot/scheduler.py: sau gio dong cua moi ngay (bot.scan_cron)
+          - bot/scheduler.py: sau gio dong cua moi ngay (bot.scan_cron, 15h05)
+            va sau phien sang (bot.midday_cron, 11h35 - ban "tam tinh":
+            nen hom nay chua dong, 15h05 tai lai va ghi de)
           - bot/main.py: ensure_fresh_in_background() luc bot khoi dong,
             neu kho rong / snapshot cu / snapshot tam (KHONG chan bot)
                                 |
@@ -154,9 +156,10 @@ tinh, cho phep `/help` va cac lenh khac van tra loi ngay lap tuc song song
 
 ## Cap nhat du lieu o nen: `analysis/snapshot.py::update_market_data()`
 
-Mot luong DUY NHAT cho ca luc khoi dong (`ensure_fresh_in_background()`) va
-lich 15h05 (`bot/main.py::daily_scan_job()`), co `asyncio.Lock` de hai luong
-khong ghi chong len cung mot file:
+Mot luong DUY NHAT cho ca luc khoi dong (`ensure_fresh_in_background()`),
+lich 11h35 (`bot/main.py::midday_update_job()`) va lich 15h05
+(`bot/main.py::daily_scan_job()`), co `asyncio.Lock` de cac luong khong ghi
+chong len cung mot file:
 
 1. Kho gia RONG (lan dau, hoac Render goi Free vua restart - dia tam bi xoa):
    a. TRUOC TIEN dung snapshot TAM cho danh sach theo doi trong

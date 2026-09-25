@@ -114,6 +114,15 @@ async def daily_scan_job(bot: Bot) -> None:
             log.warning("Khong gui duoc canh bao cho chat %s: %s", alert.chat_id, exc)
 
 
+async def midday_update_job() -> None:
+    """Sau phien sang (bot.midday_cron): tai nen DANG CHAY cua hom nay cho ca
+    kho roi tinh lai snapshot - /loc, /tinhieu co gia phien sang (ghi chu
+    "tam tinh", xem analysis/snapshot.py:intraday_note). 15h05 lich cuoi
+    phien tai lai, nen dong cua ghi de nen tam (kho giu ban ghi moi hon).
+    Khong gui canh bao: canh bao chi dua tren nen da dong cua."""
+    await update_market_data(force=True)
+
+
 async def hourly_news_job(bot: Bot) -> None:
     """Tong hop tin tuc vi mo, phap luat va phat song moi gio cho nguoi dung."""
     try:
@@ -171,6 +180,7 @@ async def run() -> None:
     scheduler = build_scheduler(
         lambda: daily_scan_job(bot),
         lambda: hourly_news_job(bot),
+        midday_update_job,
     )
     scheduler.start()
 

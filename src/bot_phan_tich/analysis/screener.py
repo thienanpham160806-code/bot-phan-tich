@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -79,6 +79,7 @@ class ScreenReport:
     total_universe: int
     as_of: datetime | None
     note: str | None = field(default=None)
+    session: date | None = None  # ngay cua nen moi nhat trong snapshot
 
 
 def preset_breakout() -> ScreenCriteria:
@@ -229,7 +230,16 @@ def _freshness_note(as_of: datetime | None, n_symbols: int) -> str | None:
             f"⚠️ Chưa có dữ liệu phiên {expected:%d/%m/%Y} (bản gần nhất tính lúc "
             f"{stamp}), kết quả có thể cũ. Gõ /trangthai để xem chi tiết."
         )
-    return None
+    return snapshot.intraday_note()
+
+
+def _session_of(frame: pd.DataFrame) -> date | None:
+    """Phien giao dich cua du lieu (ngay nen moi nhat), KHAC thoi diem ghi
+    file: chay build_snapshot luc 8h sang van la du lieu phien hom truoc."""
+    if "as_of" not in frame.columns or frame.empty:
+        return None
+    latest = pd.to_datetime(frame["as_of"]).max()
+    return None if pd.isna(latest) else latest.date()
 
 
 def screen_report(criteria: ScreenCriteria) -> ScreenReport:
@@ -264,7 +274,10 @@ def screen_report(criteria: ScreenCriteria) -> ScreenReport:
     matched = matched.head(limit)
 
     results = _to_results(matched)
-    return ScreenReport(results=results, total_universe=len(frame), as_of=as_of, note=note)
+    return ScreenReport(
+        results=results, total_universe=len(frame), as_of=as_of, note=note,
+        session=_session_of(frame),
+    )
 
 
 def screen(criteria: ScreenCriteria) -> list[ScreenResult]:
@@ -281,6 +294,7 @@ class SignalReport:
     sell: list[ScreenResult]
     as_of: datetime | None
     note: str | None = field(default=None)
+    session: date | None = None  # ngay cua nen moi nhat trong snapshot
 
 
 def today_signals(limit: int | None = None) -> SignalReport:
@@ -304,7 +318,8 @@ def today_signals(limit: int | None = None) -> SignalReport:
     sell_frame = sell_frame.sort_values("total_score", ascending=True).head(limit)
 
     return SignalReport(
-        buy=_to_results(buy_frame), sell=_to_results(sell_frame), as_of=as_of, note=note
+        buy=_to_results(buy_frame), sell=_to_results(sell_frame), as_of=as_of, note=note,
+        session=_session_of(frame),
     )
 
 

@@ -430,3 +430,64 @@ async def test_quick_snapshot_does_not_replace_full_snapshot(
 
     assert set(snapshot_mod.load_snapshot()["symbol"]) == {"AAA", "BBB", "CCC"}
     assert snapshot_mod.is_partial_snapshot() is False
+
+
+# ------------------------------------------------- tam tinh trong phien (11:35)
+def _write_intraday_snapshot(written_at: datetime, bar_day: date) -> None:
+    path = snapshot_mod.snapshot_path()
+    pd.DataFrame({"symbol": ["AAA"], "as_of": [pd.Timestamp(bar_day)]}).to_parquet(
+        path, index=False
+    )
+    ts = written_at.timestamp()
+    os.utime(path, (ts, ts))
+
+
+def test_midday_snapshot_is_fresh_until_close_then_stale(isolated_paths):
+    _write_intraday_snapshot(datetime(2026, 9, 24, 11, 37, tzinfo=VN), date(2026, 9, 24))
+    assert snapshot_mod.is_stale(datetime(2026, 9, 24, 13, 0, tzinfo=VN)) is False
+    # Da dong cua ma ban cuoi phien chua ghi de: phai coi la cu de tinh lai.
+    assert snapshot_mod.is_stale(datetime(2026, 9, 24, 16, 0, tzinfo=VN)) is True
+
+
+def test_intraday_note_only_for_snapshots_with_todays_bar(isolated_paths):
+    from bot_phan_tich.analysis.screener import _freshness_note
+
+    _write_intraday_snapshot(datetime(2026, 9, 24, 11, 37, tzinfo=VN), date(2026, 9, 24))
+    note = snapshot_mod.intraday_note()
+    assert "hết phiên sáng 24/09" in note and "15:05" in note
+
+    _write_intraday_snapshot(datetime(2026, 9, 24, 14, 5, tzinfo=VN), date(2026, 9, 24))
+    assert "14:05 24/09 (phiên đang diễn ra)" in snapshot_mod.intraday_note()
+
+    # Ban cuoi phien (sau 15:10) va ngay nghi (chua co nen hom nay): khong ghi chu.
+    _write_intraday_snapshot(datetime(2026, 9, 24, 15, 20, tzinfo=VN), date(2026, 9, 24))
+    assert snapshot_mod.intraday_note() is None
+    _write_intraday_snapshot(datetime(2026, 9, 24, 11, 37, tzinfo=VN), date(2026, 9, 23))
+    assert snapshot_mod.intraday_note() is None
+
+    # /loc, /tinhieu hien ghi chu tam tinh khi snapshot chua cu.
+    _write_intraday_snapshot(datetime(2026, 9, 24, 11, 37, tzinfo=VN), date(2026, 9, 24))
+
+    class Noon(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 9, 24, 12, 0, tzinfo=VN).astimezone(tz)
+
+    import bot_phan_tich.analysis.snapshot as mod
+
+    original = mod.datetime
+    mod.datetime = Noon
+    try:
+        assert "Tạm tính" in _freshness_note(None, 1)
+    finally:
+        mod.datetime = original
+
+
+def test_scheduler_registers_midday_update(monkeypatch):
+    from bot_phan_tich.bot.scheduler import build_scheduler
+
+    async def noop():
+        return None
+
+    jobs = {j.id for j in build_scheduler(noop, noop, noop).get_jobs()}
+    assert {"daily_scan", "hourly_news", "midday_update"} <= jobs

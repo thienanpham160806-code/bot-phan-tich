@@ -10,10 +10,13 @@ from ..logging_conf import get_logger
 log = get_logger(__name__)
 
 
-def build_scheduler(scan_callback, news_callback=None) -> AsyncIOScheduler:
+def build_scheduler(scan_callback, news_callback=None, midday_callback=None) -> AsyncIOScheduler:
     """scan_callback: coroutine chay cuoi phien (EOD).
 
     news_callback: coroutine tong hop tin tuc vi mo, phap luat va phat song moi gio.
+
+    midday_callback: coroutine cap nhat kho gia + snapshot sau phien sang
+    (bot.midday_cron) - /loc, /tinhieu co gia phien sang, danh dau tam tinh.
     """
     settings = get_settings()
     cron = settings.get("bot.scan_cron", "5 15 * * 1-5")
@@ -39,6 +42,17 @@ def build_scheduler(scan_callback, news_callback=None) -> AsyncIOScheduler:
             misfire_grace_time=1800,
         )
         log.info("Da dat lich tong hop tin tuc vi mo: '%s' (%s)", news_cron, timezone)
+
+    midday_cron = settings.get("bot.midday_cron", "35 11 * * 1-5")
+    if midday_callback is not None and midday_cron:
+        scheduler.add_job(
+            midday_callback,
+            CronTrigger.from_crontab(midday_cron, timezone=timezone),
+            id="midday_update",
+            replace_existing=True,
+            misfire_grace_time=1800,
+        )
+        log.info("Da dat lich cap nhat sau phien sang: '%s' (%s)", midday_cron, timezone)
 
     return scheduler
 

@@ -43,6 +43,9 @@ log = get_logger(__name__)
 SNAPSHOT_FILENAME = "snapshot.parquet"
 _MIN_BARS = 60
 _MARKET_CLOSE_CUTOFF = dt_time(15, 10)  # trung voi bot.scan_cron mac dinh
+_SESSION_OPEN = dt_time(9, 0)
+_MORNING_CLOSE = dt_time(11, 30)
+_AFTERNOON_OPEN = dt_time(13, 0)
 _PROGRESS_EVERY = 200
 
 
@@ -303,11 +306,43 @@ def last_expected_session(now: datetime | None = None) -> date:
 
 
 def is_stale(now: datetime | None = None) -> bool:
-    """True neu chua co snapshot, hoac snapshot cu hon phien giao dich gan nhat."""
+    """True neu chua co snapshot, hoac snapshot cu hon phien giao dich gan
+    nhat. Ban tinh TRONG phien (vd lich 11:35, xem intraday_note()) cua
+    chinh phien do cung la cu mot khi phien da dong cua - neu khong, bot khoi
+    dong lai luc 16h se giu mai ban tam tinh buoi trua."""
     updated = snapshot_last_updated()
     if updated is None:
         return True
-    return updated.date() < last_expected_session(now)
+    expected = last_expected_session(now)
+    if updated.date() < expected:
+        return True
+    return updated.date() == expected and updated.time() < _MARKET_CLOSE_CUTOFF
+
+
+def intraday_note(frame: pd.DataFrame | None = None) -> str | None:
+    """Ghi chu khi snapshot duoc tinh TRONG phien giao dich (lich 11:35 sau
+    phien sang - bot.midday_cron - hoac chay tay trong gio giao dich): nen
+    cua ngay do chua dong cua, khoi luong moi duoc mot phan phien. None neu
+    la ban cuoi phien, hoac hom do khong co giao dich (nghi le)."""
+    updated = snapshot_last_updated()
+    if updated is None or updated.weekday() >= 5:
+        return None
+    if not _SESSION_OPEN <= updated.time() < _MARKET_CLOSE_CUTOFF:
+        return None
+    frame = load_snapshot() if frame is None else frame
+    if frame.empty or "as_of" not in frame.columns:
+        return None
+    if pd.to_datetime(frame["as_of"]).max().date() != updated.date():
+        return None  # chua co nen cua hom nay: ban van la cua phien truoc
+    if _MORNING_CLOSE <= updated.time() < _AFTERNOON_OPEN:
+        moment = f"hết phiên sáng {updated:%d/%m}"
+    else:
+        moment = f"{updated:%H:%M %d/%m} (phiên đang diễn ra)"
+    return (
+        f"🕐 Tạm tính theo giá {moment}: nến hôm nay chưa đóng cửa, khối lượng "
+        "mới được một phần phiên nên tiêu chí khối lượng (vd Đột phá cần KL ≥ 1,5 "
+        "lần TB20) khó đạt hơn. Bản chính thức sau 15:05."
+    )
 
 
 # ------------------------------------------- cap nhat du lieu o nen + trang thai
